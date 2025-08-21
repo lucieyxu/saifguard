@@ -1,0 +1,23 @@
+[project]
+name = "saifguard"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "luciexu"}
+]
+readme = "README.md"
+requires-python = ">=3.11"
+
+dependencies = [
+    "fastapi (>=0.116.1,<0.117.0)",
+    "uvicorn[standard] (>=0.35.0,<0.36.0)",
+    "pydantic (>=2.11.7,<3.0.0)",
+    "google-cloud-aiplatform (>=1.110.0,<2.0.0)",
+    "google-genai (>=1.31.0,<2.0.0)",
+    "google-adk (>=1.10.0,<2.0.0)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
