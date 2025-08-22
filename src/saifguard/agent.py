@@ -4,6 +4,7 @@ from google.adk.agents import Agent
 from google.cloud import aiplatform
 from google.genai import types
 from saifguard.analysis_tool import analysis_tool
+from saifguard.gcp_project_tool import gcp_project_tool
 from saifguard.config import MODEL, PROJECT_ID, REGION
 from vertexai.preview.reasoning_engines import AdkApp
 
@@ -33,7 +34,7 @@ class SAIFGuardAgent:
             name="SAIFGuard",
             description="SAIFGuard is an agent that helps analyze security documents.",
             generate_content_config=generate_content_config,
-            tools=[analysis_tool],  # Add other tools here
+            tools=[analysis_tool, gcp_project_tool],  # Add other tools here
         )
         self.app = AdkApp(agent=agent)
 
