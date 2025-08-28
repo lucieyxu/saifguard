@@ -38,9 +38,9 @@ class SAIFGuardAgent:
         )
         self.app = AdkApp(agent=agent)
 
-    async def invoke(self, user_id: str, message: str):
+    def invoke(self, user_id: str, message: str):
         LOGGER.info(f"Invoking the agent for {user_id}, {message}")
-        async for event in self.app.async_stream_query(
+        for event in self.app.stream_query(
             user_id=user_id,
             message=message,
         ):
@@ -50,4 +50,4 @@ class SAIFGuardAgent:
                 and "parts" in event["content"]
                 and "text" in event["content"]["parts"][0]
             ):
-                yield "/n".join([part["text"] for part in event["content"]["parts"]])
+                yield "\n".join([part["text"] for part in event["content"]["parts"]])
