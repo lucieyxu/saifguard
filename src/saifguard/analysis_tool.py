@@ -4,6 +4,7 @@ import traceback
 from google import genai
 from google.genai import types
 from saifguard.config import MODEL, PROJECT_ID, REGION
+from saifguard.google_search_tool import google_search_tool
 
 LOGGER = logging.getLogger(__name__)
 
@@ -16,7 +17,7 @@ You are an AI assistant tasked with helping users. When answering, adhere to the
 Now look at these documents and answer the user query. 
 """
 
-DISCOVERY_TOOL_QUERY_PROMPT = "Inspect the file provided as a GCS uri and generate detailed recommendations to improve the overall security posture, with a focus on SAIF compliance."
+DISCOVERY_TOOL_QUERY_PROMPT = "Inspect the file provided as a GCS uri and generate detailed recommendations to improve the overall security posture. Use the provided Google Search results for the latest SAIF compliance recommendations as a reference."
 
 
 def analysis_tool(gcs_uri: str):
@@ -27,12 +28,18 @@ def analysis_tool(gcs_uri: str):
     """
     try:
         LOGGER.info(f"Calling analysis_tool with {gcs_uri}")
+
+        # Get latest SAIF recommendations from Google Search
+        LOGGER.info("Fetching latest SAIF recommendations using Google Search.")
+        saif_recommendations = google_search_tool("latest Google SAIF recommendations")
+
         contents = [
             types.Part.from_text(text=DISCOVERY_TOOL_QUERY_PROMPT),
             types.Part.from_uri(
                 file_uri=gcs_uri,
                 mime_type="application/pdf",
             ),
+            types.Part.from_text(text=f"LATEST SAIF RECOMMENDATIONS:\n{saif_recommendations}"),
         ]
 
         client = genai.Client(
