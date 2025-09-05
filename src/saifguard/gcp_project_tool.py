@@ -1,3 +1,4 @@
+import os
 import json
 import logging
 import traceback
@@ -9,8 +10,6 @@ from google import genai
 from google.genai import types
 from google.cloud import asset_v1
 
-# Assuming saifguard.config exists and contains these variables
-from saifguard.config import MODEL, PROJECT_ID, REGION
 from saifguard.google_search_tool import google_search_tool
 
 LOGGER = logging.getLogger(__name__)
@@ -59,20 +58,20 @@ Generate your final report in Markdown. For each vulnerability you discover, pro
 DISCOVERY_TOOL_QUERY_PROMPT = "Inspect the GCP project assets provided and generate detailed recommendations to improve the overall security posture. Use the provided Google Search results for the latest SAIF compliance recommendations as a reference."
 
 
-def gcp_project_tool(gcp_project_id: str):
+def gcp_project_tool(gcp_GOOGLE_CLOUD_PROJECT: str):
     """Analyze a GCP project referenced by a GCP project ID.
 
     Args:
-        gcp_project_id (str): GCP project ID
+        gcp_GOOGLE_CLOUD_PROJECT (str): GCP project ID
     """
     try:
-        LOGGER.info(f"Calling GCP project tool with project: {gcp_project_id}")
+        LOGGER.info(f"Calling GCP project tool with project: {gcp_GOOGLE_CLOUD_PROJECT}")
 
         # Get latest SAIF recommendations from Google Search
         LOGGER.info("Fetching latest SAIF recommendations using Google Search.")
         saif_recommendations = google_search_tool("latest Google SAIF recommendations")
 
-        resources = _get_asset_inventory_resources(gcp_project_id)
+        resources = _get_asset_inventory_resources(gcp_GOOGLE_CLOUD_PROJECT)
         LOGGER.info(f"Asset Inventory found {len(resources)} resources.")
 
         if resources:
@@ -99,11 +98,11 @@ def gcp_project_tool(gcp_project_id: str):
 
         client = genai.Client(
             vertexai=True,
-            project=PROJECT_ID,
-            location=REGION,
+            project=os.getenv("GOOGLE_CLOUD_PROJECT"),
+            location=os.getenv("GOOGLE_CLOUD_LOCATION"),
         )
         response = client.models.generate_content(
-            model=MODEL,
+            model=os.getenv("MODEL"),
             contents=contents,
             config=types.GenerateContentConfig(
                 system_instruction=DISCOVERY_TOOL_SYSTEM_PROMPT,
@@ -120,14 +119,14 @@ def gcp_project_tool(gcp_project_id: str):
         return message
 
 
-def _get_asset_inventory_resources(project_id: str) -> List[asset_v1.types.ResourceSearchResult]:
+def _get_asset_inventory_resources(GOOGLE_CLOUD_PROJECT: str) -> List[asset_v1.types.ResourceSearchResult]:
     """
     Fetches all resources from GCP Asset Inventory for a given project.
     """
 
     try:
         client = asset_v1.AssetServiceClient()
-        parent_scope = f"projects/{project_id}"
+        parent_scope = f"projects/{GOOGLE_CLOUD_PROJECT}"
         read_mask = field_mask_pb2.FieldMask(paths=["*"])
 
         asset_inventory_response = client.search_all_resources(
