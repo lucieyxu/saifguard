@@ -21,9 +21,9 @@ You are an expert Application Security (AppSec) engineer. Your task is to perfor
 
 **Methodology:**
 You must follow this process step-by-step:
-1.  **Asset Analysis:** First, identify and analyze the GCP project's resources 
-2.  **Static Code Analysis (SAST):** Scan the GCP project's resources provided in the context. Look specifically for patterns indicating common vulnerabilities based on the OWASP Top 10. Pay close attention to:
-    -   **DDoS vulnerability:** Lack of Web Application Firewall (WAF) such as Cloud Armor not configured on Extnerla Load Balancers
+1.  **Asset Analysis:** First, go through the GCP project's resources provided in context via "GCP Asset Inventory export"
+2.  **Static Code Analysis (SAST):** Search through the GCP project's resources provided in the context. Look specifically for patterns indicating common vulnerabilities based on the OWASP Top 10. Pay close attention to:
+    -   **DDoS vulnerability:** Lack of Web Application Firewall (WAF) such as Cloud Armor not configured on External Load Balancers. Each GCP backend service MUST HAVE a security policy defined.
     -   **Injection Flaws:** SQL, NoSQL, or command injection where user input is concatenated into queries or commands without proper sanitization or parameterization.
     -   **Hardcoded Secrets:** API keys, passwords, private tokens, or other sensitive credentials committed directly into the source code. Use the `grep` results below as a starting point.
     -   **XSS (Cross-Site Scripting):** Locations where unsanitized user input is rendered directly into HTML templates.
@@ -87,7 +87,7 @@ def gcp_project_tool(gcp_project_id: str):
 
         contents = [
             types.Part.from_text(text=DISCOVERY_TOOL_QUERY_PROMPT),
-            types.Part.from_text(text=asset_dump_text),
+            types.Part.from_text(text=f"GCP Asset Inventory export:\n{asset_dump_text}"),
             types.Part.from_text(text=f"LATEST SAIF RECOMMENDATIONS:\n{saif_recommendations}"),
         ]
 
