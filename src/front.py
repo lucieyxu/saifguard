@@ -53,7 +53,13 @@ def respond_to_chat(input: str, history: list[ChatMessage]):
 
   Edit this function to process messages with a real chatbot/LLM.
   """
-  response = agent.invoke(user_id="test", message=input)
+  agent_input = ""
+  for message in history:
+    agent_input += f"""
+*{message.role}*: {message.content}
+"""
+
+  response = agent.invoke(user_id="test", message=agent_input)
   for line in response:
     time.sleep(0.3)
     yield line + " "
@@ -253,7 +259,8 @@ def chat_pane():
       if msg.role == "user":
         user_message(message=msg)
       else:
-        bot_message(message_index=index, message=msg)
+        if not msg.content.strip().startswith("*tool*:"):
+            bot_message(message_index=index, message=msg)
 
     if state.in_progress:
       with me.box(key="scroll-to", style=me.Style(height=250)):
@@ -565,32 +572,42 @@ def _submit_chat_msg():
   state = me.state(State)
   if state.in_progress or not state.input:
     return
-  input = state.input
-  # Clear the text input.
-  state.input = ""
-  yield
 
-  output = state.output
-  if output is None:
-    output = []
-  output.append(ChatMessage(role="user", content=input))
+  # 1. Add the user's message to the output and clear the input field
+  user_input = state.input
+  state.output.append(ChatMessage(role="user", content=user_input))
+  state.input = ""
   state.in_progress = True
   me.scroll_into_view(key="scroll-to")
   yield
 
-  start_time = time.time()
-  # Send user input and chat history to get the bot response.
-  output_message = respond_to_chat(input, state.output)
-  assistant_message = ChatMessage(role="bot")
-  output.append(assistant_message)
-  state.output = output
-  for content in output_message:
-    assistant_message.content += content
-    # TODO: 0.25 is an abitrary choice. In the future, consider making this adjustable.
-    if (time.time() - start_time) >= 0.25:
-      start_time = time.time()
-      yield
+  # 2. Get the agent's response generator
+  response_generator = respond_to_chat(user_input, state.output)
+  
+  # This variable will point to the message we are actively streaming the final answer into.
+  current_final_message = None
 
+  for chunk in response_generator:
+    is_tool_response = chunk.strip().startswith("*tool*:")
+
+    if is_tool_response:
+      # If this is a tool response, add it as a new, complete message.
+      # The UI will hide this message, but it will be in the history.
+      state.output.append(ChatMessage(role="bot", content=chunk.strip()))
+      current_final_message = None # Reset, so the next text chunk starts a new message.
+      yield
+    else:
+      # This is a chunk of the final, visible agent answer.
+      if current_final_message is None:
+        # This is the *first* chunk. Create a new message for it.
+        new_message = ChatMessage(role="bot", content=chunk)
+        state.output.append(new_message)
+        current_final_message = new_message
+      else:
+        # This is a subsequent chunk, so append it to the message we're building.
+        current_final_message.content += chunk
+      yield
+  
   state.in_progress = False
   me.focus_component(key="chat_input")
   yield
