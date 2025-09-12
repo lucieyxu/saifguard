@@ -31,7 +31,7 @@ def analysis_tool(gcs_uri: str):
 
         # Get latest SAIF recommendations from Google Search
         LOGGER.info("Fetching latest SAIF recommendations using Google Search.")
-        saif_recommendations = google_search_tool("latest Google SAIF recommendations")
+        saif_recommendations = google_search_tool('get the latest detailed SAIF framework recommendations, use the "https://saif.google/ai-development-primer" and "https://saif.google/secure-ai-framework"')
 
         contents = [
             types.Part.from_text(text=DISCOVERY_TOOL_QUERY_PROMPT),
