@@ -54,6 +54,10 @@ Generate your final report in Markdown. For each vulnerability you discover, pro
 - **Location:**
 - **Description:**
 - **Remediation:**
+
+<RECAP>
+* Do not attempt to answer questions without the GCP resources found, always ground them in the GCP Asset Inventory export and Latest SAIF recommendations.
+</RECAP>
 """
 
 DISCOVERY_TOOL_QUERY_PROMPT = "Inspect the GCP project assets provided and generate detailed recommendations to improve the overall security posture. Use the provided Google Search results for the latest SAIF compliance recommendations as a reference."
