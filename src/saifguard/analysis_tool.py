@@ -52,7 +52,6 @@ def analysis_tool(gcs_uri: str):
             contents=contents,
             config=types.GenerateContentConfig(
                 system_instruction=DISCOVERY_TOOL_SYSTEM_PROMPT,
-                max_output_tokens=1000,
                 temperature=0.3,
             ),
         )

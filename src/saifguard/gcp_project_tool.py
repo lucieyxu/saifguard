@@ -127,7 +127,6 @@ def gcp_project_tool(gcp_project_id: str):
             contents=contents,
             config=types.GenerateContentConfig(
                 system_instruction=DISCOVERY_TOOL_SYSTEM_PROMPT,
-                max_output_tokens=1000,
                 temperature=0.3,
             ),
         )

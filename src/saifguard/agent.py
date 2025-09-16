@@ -48,7 +48,6 @@ class SAIFGuardAgent:
         generate_content_config = types.GenerateContentConfig(
             safety_settings=safety_settings,
             temperature=0.1,
-            max_output_tokens=1000,
             top_p=0.95,
         )
         agent = Agent(
