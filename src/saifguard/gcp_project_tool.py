@@ -10,7 +10,7 @@ from google.genai import types
 from google.cloud import asset_v1
 
 # Assuming saifguard.config exists and contains these variables
-from saifguard.config import MODEL, PROJECT_ID, REGION
+from saifguard.config import MODEL, PROJECT_ID, REGION, GOOGLE_SEARCH_SAIF_PROMPT
 from saifguard.google_search_tool import google_search_tool
 
 LOGGER = logging.getLogger(__name__)
@@ -90,7 +90,7 @@ def gcp_project_tool(gcp_project_id: str):
 
         # Get latest SAIF recommendations from Google Search
         LOGGER.info("Fetching latest SAIF recommendations using Google Search.")
-        saif_recommendations = google_search_tool('get the latest detailed SAIF framework recommendations, use the "https://saif.google/ai-development-primer" and "https://saif.google/secure-ai-framework"')
+        saif_recommendations = google_search_tool(GOOGLE_SEARCH_SAIF_PROMPT)
 
         resources = _get_asset_inventory_resources(gcp_project_id)
         LOGGER.info(f"Asset Inventory found {len(resources)} resources.")
@@ -127,7 +127,7 @@ def gcp_project_tool(gcp_project_id: str):
             contents=contents,
             config=types.GenerateContentConfig(
                 system_instruction=DISCOVERY_TOOL_SYSTEM_PROMPT,
-                temperature=0.3,
+                temperature=0.1,
             ),
         )
         LOGGER.info("Successfully received response from the model.")
