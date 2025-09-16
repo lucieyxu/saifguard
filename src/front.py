@@ -74,7 +74,7 @@ def on_load(e: me.LoadEvent):
     allowed_iframe_parents=["https://mesop-dev.github.io"]
   ),
   title="Fancy Mesop Demo Chat",
-  path="/fancy_chat",
+  path="/",
   on_load=on_load,
 )
 def page():
