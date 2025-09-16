@@ -29,7 +29,10 @@ def google_search_tool(query: str):
         grounding_tool = types.Tool(google_search=types.GoogleSearch())
 
         # Configure generation settings
-        config = types.GenerateContentConfig(tools=[grounding_tool])
+        config = types.GenerateContentConfig(
+            tools=[grounding_tool], 
+            temperature=0.1,
+        )
 
         # Make the request
         response = client.models.generate_content(
@@ -39,6 +42,7 @@ def google_search_tool(query: str):
         )
 
         LOGGER.info("Successfully received response from the model with Google Search grounding.")
+        LOGGER.info(f"Google Search response: {response}")
         return response.text
     except Exception as e:
         message = f"An exception occurred while calling Google Search tool: {e}"

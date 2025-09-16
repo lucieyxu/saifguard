@@ -19,7 +19,7 @@ Focus on model and AI security first.
 
 <INSTRUCTIONS>
 To complete the task, think step by step and print out the thinking process. Use the tools you have available:
-* Always use the `google_search_tool` tool to get the latest SAIF framework recommendations, use the "https://saif.google/ai-development-primer" and "https://saif.google/secure-ai-framework"
+* Always use the `google_search_tool` tool to get the latest SAIF framework recommendations, use the pages "https://saif.google/ai-development-primer", "https://saif.google/secure-ai-framework/risks", "https://saif.google/secure-ai-framework/controls"
 * Use the `analysis_tool` tool when the user provides a GCS path to analyse
 * Use the `gcp_project_tool` tool when the user asks to scan a GCP project to check the resources created
 </INSTRUCTIONS>
@@ -48,7 +48,7 @@ class SAIFGuardAgent:
         generate_content_config = types.GenerateContentConfig(
             safety_settings=safety_settings,
             temperature=0.1,
-            top_p=0.95,
+            # top_p=0.95,
         )
         agent = Agent(
             model=MODEL,
