@@ -1,4 +1,4 @@
-PROJECT_ID = "saifguard-gf-rrag-0g"
+PROJECT_ID = "saifguard-gf-rrag-0"
 REGION = "europe-west4"
 MODEL = "gemini-2.5-flash"
 GOOGLE_SEARCH_SAIF_PROMPT = """
