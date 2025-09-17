@@ -3,6 +3,8 @@
 ## Local Setup
 Change constant in ./saifguard/config.py.
 
+If you want to publish the dashboards again when running a project scan, set the environment variable GENERATE_DASHBOARD to True.
+
 ### Run with FastAPI
 ```
 cd src
