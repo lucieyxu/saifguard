@@ -73,7 +73,7 @@ def on_load(e: me.LoadEvent):
   security_policy=me.SecurityPolicy(
     allowed_iframe_parents=["https://mesop-dev.github.io"]
   ),
-  title="Fancy Mesop Demo Chat",
+  title="SAIFGuard Chat",
   path="/",
   on_load=on_load,
 )
