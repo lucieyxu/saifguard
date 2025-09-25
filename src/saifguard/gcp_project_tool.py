@@ -1,10 +1,12 @@
 import json
 import logging
 import traceback
+import time
 from textwrap import dedent
 from typing import List
 
 import pandas as pd
+from opentelemetry import trace
 from google import genai
 from google.cloud import asset_v1
 from google.genai import types
@@ -153,9 +155,10 @@ def gcp_project_tool(gcp_project_id: str):
     try:
         LOGGER.info(f"Calling GCP project tool with project: {gcp_project_id}")
 
-        # Get latest SAIF recommendations from Google Search
         LOGGER.info("Fetching latest SAIF recommendations using Google Search.")
+        start_time = time.time()
         saif_recommendations = google_search_tool(GOOGLE_SEARCH_SAIF_PROMPT)
+        LOGGER.info(f"Fetching SAIF recommendations took {time.time() - start_time:.2f} seconds.")
 
         resources = _get_asset_inventory_resources(gcp_project_id)
         LOGGER.info(f"Asset Inventory found {len(resources)} resources.")
@@ -186,6 +189,7 @@ def gcp_project_tool(gcp_project_id: str):
         with open("saif_recommendations.txt", "w") as f:
             f.write(saif_recommendations)
 
+        start_time = time.time()
         client = genai.Client(
             vertexai=True,
             project=PROJECT_ID,
@@ -199,6 +203,7 @@ def gcp_project_tool(gcp_project_id: str):
                 temperature=0.1,
             ),
         )
+        LOGGER.info(f"Generating security report took {time.time() - start_time:.2f} seconds.")
         LOGGER.info("Successfully received response from the model.")
         if GENERATE_DASHBOARD:
             try:
@@ -209,6 +214,7 @@ def gcp_project_tool(gcp_project_id: str):
                 """
                 )
 
+                start_time = time.time()
                 contents = [
                     types.Part.from_text(text=query),
                 ]
@@ -228,6 +234,7 @@ def gcp_project_tool(gcp_project_id: str):
                         response_schema=VulnerabilityList,
                     ),
                 )
+                LOGGER.info(f"Generating dashboard data took {time.time() - start_time:.2f} seconds.")
                 vulnerabilities = json.loads(response.text)
                 table = pd.DataFrame(vulnerabilities["vulnerabilities"])
                 table["project_id"] = PROJECT_ID
@@ -256,7 +263,7 @@ def _get_asset_inventory_resources(
     """
     Fetches all resources from GCP Asset Inventory for a given project.
     """
-
+    start_time = time.time()
     try:
         client = asset_v1.AssetServiceClient()
         parent_scope = f"projects/{project_id}"
@@ -264,13 +271,48 @@ def _get_asset_inventory_resources(
 
         asset_inventory_response = client.search_all_resources(
             request={
+                "asset_types": [
+                    "iam.googleapis.com/ServiceAccountKey",
+                    "iam.googleapis.com/ServiceAccount",
+                    "compute.googleapis.com/Route",
+                    "storage.googleapis.com/Bucket",
+                    "dns.googleapis.com/ResourceRecordSet",
+                    "dataplex.googleapis.com/EntryGroup",
+                    "compute.googleapis.com/ForwardingRule",
+                    "compute.googleapis.com/Address",
+                    "logging.googleapis.com/LogSink",
+                    "logging.googleapis.com/LogBucket",
+                    "compute.googleapis.com/UrlMap",
+                    "compute.googleapis.com/Subnetwork",
+                    "sqladmin.googleapis.com/Instance",
+                    "servicedirectory.googleapis.com/Service",
+                    "servicedirectory.googleapis.com/Namespace",
+                    "servicedirectory.googleapis.com/Endpoint",
+                    "run.googleapis.com/Service",
+                    "run.googleapis.com/Revision",
+                    "run.googleapis.com/Job",
+                    "dns.googleapis.com/ResponsePolicy",
+                    "dns.googleapis.com/ManagedZone",
+                    "compute.googleapis.com/TargetHttpsProxy",
+                    "compute.googleapis.com/TargetHttpProxy",
+                    "compute.googleapis.com/SslCertificate",
+                    "compute.googleapis.com/SecurityPolicy",
+                    "compute.googleapis.com/Project",
+                    "compute.googleapis.com/NetworkEndpointGroup",
+                    "compute.googleapis.com/Network",
+                    "compute.googleapis.com/BackendService",
+                    "cloudresourcemanager.googleapis.com/Project",
+                    "cloudbilling.googleapis.com/ProjectBillingInfo",
+                    "bigquery.googleapis.com/Table",
+                    "bigquery.googleapis.com/Dataset",
+                ],
                 "scope": parent_scope,
                 "read_mask": read_mask,
             }
         )
         all_resources = list(asset_inventory_response)
+        LOGGER.info(f"Fetching Asset Inventory resources took {time.time() - start_time:.2f} seconds.")
         return all_resources
-
     except Exception as e:
         LOGGER.error(f"An unexpected error occurred while fetching assets: {e}")
         return []
