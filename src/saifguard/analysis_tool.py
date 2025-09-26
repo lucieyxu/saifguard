@@ -56,6 +56,7 @@ Inspect the files provided as a GCS bucket URI and generate detailed recommendat
 The GCS bucket URI contains a Technical Design Document (TDD) and a security requirements document.
 Use the security requirements document as input to highlight additional security gaps inside the TDD document on top of SAIF recommendations.
 Use the provided Google Search results for the latest SAIF compliance recommendations as a reference.
+Make sure you show both recommendations related to SAIF compliance recommendations and security requirements. 
 """
 
 
