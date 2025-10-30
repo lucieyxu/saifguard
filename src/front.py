@@ -15,7 +15,7 @@ import mesop as me
 Role = Literal["user", "bot"]
 
 
-_APP_TITLE = " "
+_APP_TITLE = "SAIFGuard"
 _BOT_AVATAR_LETTER = "M"
 _EMPTY_CHAT_MESSAGE = "Get started with an example"
 _EXAMPLE_USER_QUERIES = (
@@ -171,23 +171,34 @@ def home_page():
     me.text(
       "Your AI applications:",
       type="headline-6",
-      style=me.Style(margin=me.Margin(bottom=10)),
+      style=me.Style(margin=me.Margin(bottom=20)),
     )
 
     df = pd.DataFrame(
       data={
-        "Application name": [
-          "RAG AI application",
-          "Agentic Shopping Assistant",
-          "Multi-agent application",
-          ],
+        "Application name": ["AI advisor application (RAG)", "Agentic Shopping Assistant", "Multi-agent application"],
         "Last Run": [
-          pd.Timestamp("20180310"),
-          pd.Timestamp("20230310"),
-          pd.Timestamp("20230310"),
-        ]
+          pd.Timestamp("20251030"),
+          pd.Timestamp("20251021"),
+          pd.Timestamp("20251015"),
+        ],
       }
     )
+
+    application_table_rows = [
+        {
+            "Application name": "RAG AI application",
+            "Last Run": pd.Timestamp("2018-03-10 10:00:00"),
+        },
+        {
+            "Application name": "Agentic Shopping Assistant",
+            "Last Run": pd.Timestamp("2023-03-10 15:30:00"),
+        },
+        {
+            "Application name": "Multi-agent application",
+            "Last Run": pd.Timestamp("2023-03-10 11:15:00"),
+        },
+    ]
 
     with me.box(
         style=me.Style(
@@ -198,11 +209,10 @@ def home_page():
             overflow="hidden",
         )
     ):
-      me.table(
-        df,
-      )
+      me.table(df)
 
-    me.button("Analyze with SAIFGuard", on_click=lambda e: me.navigate("/chat"), type="stroked")
+    me.button("Analyze with SAIFGuard", on_click=lambda e: me.navigate("/chat"), type="stroked", style=me.Style(margin=me.Margin(bottom=30)))
+
 
 def sidebar():
   state = me.state(State)
@@ -281,7 +291,7 @@ def header():
       )
     ):
       me.image(
-        src="/static/SAIFGuard-logo.png",
+        src="/static/saifguard-logo-black.webp",
         alt="SAIFGuard logo",
         style=me.Style(height=250, width="auto"),
       )
@@ -419,10 +429,10 @@ def chat_input():
   state = me.state(State)
   with me.box(
     style=me.Style(
-      background=me.theme_var("surface-container")
-      if _is_mobile()
-      else me.theme_var("surface-container"),
+      background=me.theme_var("surface-container"),
+      border=me.Border.all(me.BorderSide(color=me.theme_var("outline-variant"))),
       border_radius=16,
+      align_items="flex-end",
       display="flex",
       margin=me.Margin.symmetric(horizontal="auto", vertical=15),
       padding=me.Padding.all(8),
@@ -444,17 +454,15 @@ def chat_input():
         },
         placeholder="Enter your prompt",
         style=me.Style(
-          background=me.theme_var("surface-container")
-          if _is_mobile()
-          else me.theme_var("surface-container"),
-          border=me.Border.all(
-            me.BorderSide(style="none"),
-          ),
-          color=me.theme_var("on-surface-variant"),
-          outline="none",
-          overflow_y="auto",
-          padding=me.Padding(top=16, left=16),
-          width="100%",
+        background=me.theme_var("surface-container"),
+        border=me.Border.all(
+          me.BorderSide(style="none"),
+        ),          
+        color=me.theme_var("on-surface-variant"),
+        outline="none",
+        overflow_y="auto",
+        padding=me.Padding(top=16, left=16),
+        width="100%",
         ),
         value=state.input,
       )
