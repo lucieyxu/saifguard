@@ -2,6 +2,10 @@ import random
 import time
 from dataclasses import asdict, dataclass
 from typing import Callable, Literal
+from datetime import datetime
+
+import numpy as np
+import pandas as pd
 
 from saifguard.agent import SAIFGuardAgent
 
@@ -11,12 +15,12 @@ import mesop as me
 Role = Literal["user", "bot"]
 
 
-_APP_TITLE = "SAIFGuard"
+_APP_TITLE = " "
 _BOT_AVATAR_LETTER = "M"
 _EMPTY_CHAT_MESSAGE = "Get started with an example"
 _EXAMPLE_USER_QUERIES = (
   "What is SAIFGuard?",
-  "Secure my design.",
+  "Analyze my design documents to identify security issues.",
   "Inspect my GCP project and analyze security failures.",
 )
 _CHAT_MAX_WIDTH = "800px"
@@ -74,7 +78,7 @@ def on_load(e: me.LoadEvent):
     allowed_iframe_parents=["https://mesop-dev.github.io"]
   ),
   title="SAIFGuard Application",
-  path="/",
+  path="/chat",
   on_load=on_load,
 )
 def page():
@@ -127,6 +131,78 @@ def page():
             examples_pane()
         chat_input()
 
+
+@me.page(
+  security_policy=me.SecurityPolicy(
+    allowed_iframe_parents=["https://mesop-dev.github.io"]
+  ),
+  title="SAIFGuard - Home",
+  path="/",
+  on_load=on_load,
+)
+def home_page():
+  """Creates the home page for the application."""
+  with me.box(
+    style=me.Style(
+      height="100vh",
+      display="flex",
+      flex_direction="column",
+      align_items="center",
+      justify_content="center",
+      background=me.theme_var("surface-container-lowest"),
+    )
+  ):
+    me.image(
+      src="/static/SAIFGuard-logo.png",
+      alt="SAIFGuard logo",
+      style=me.Style(height=150, width="auto", margin=me.Margin(bottom=20)),
+    )
+    me.text(
+      "Welcome to SAIFGuard",
+      type="headline-4",
+      style=me.Style(margin=me.Margin(bottom=10)),
+    )
+    me.text(
+      "Your AI-powered security analysis assistant.",
+      type="subtitle-1",
+      style=me.Style(color=me.theme_var("on-surface-variant"), margin=me.Margin(bottom=30)),
+    )
+
+    me.text(
+      "Your AI applications:",
+      type="headline-6",
+      style=me.Style(margin=me.Margin(bottom=10)),
+    )
+
+    df = pd.DataFrame(
+      data={
+        "Application name": [
+          "RAG AI application",
+          "Agentic Shopping Assistant",
+          "Multi-agent application",
+          ],
+        "Last Run": [
+          pd.Timestamp("20180310"),
+          pd.Timestamp("20230310"),
+          pd.Timestamp("20230310"),
+        ]
+      }
+    )
+
+    with me.box(
+        style=me.Style(
+            width=f"min({_CHAT_MAX_WIDTH}, 90%)",
+            margin=me.Margin(left="auto", right="auto", bottom=20),
+            border=me.Border.all(me.BorderSide(width=1, color=me.theme_var("outline-variant"))),
+            border_radius=8,
+            overflow="hidden",
+        )
+    ):
+      me.table(
+        df,
+      )
+
+    me.button("Analyze with SAIFGuard", on_click=lambda e: me.navigate("/chat"), type="stroked")
 
 def sidebar():
   state = me.state(State)
@@ -197,6 +273,18 @@ def header():
           style=me.Style(margin=me.Margin(bottom=0)),
           type="headline-6",
         )
+
+    # This box will grow and center the logo
+    with me.box(
+      style=me.Style(
+        flex_grow=1, display="flex", justify_content="center"
+      )
+    ):
+      me.image(
+        src="/static/SAIFGuard-logo.png",
+        alt="SAIFGuard logo",
+        style=me.Style(height=250, width="auto"),
+      )
 
     with me.box(style=me.Style(display="flex", gap=5)):
       icon_button(
