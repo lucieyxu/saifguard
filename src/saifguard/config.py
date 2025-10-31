@@ -1,7 +1,7 @@
 PROJECT_ID = "saifguard-gf-rrag-0"
 REGION = "europe-west4"
 MODEL = "gemini-2.5-flash"
-GENERATE_DASHBOARD = True
+GENERATE_DASHBOARD = False
 DASHBOARD_BQ_PROJECT = "saifguard"
 DASHBOARD_BQ_LOCATION = "dashboard.vulnerabilities"
 GOOGLE_SEARCH_SAIF_PROMPT = """

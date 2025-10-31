@@ -178,9 +178,9 @@ def home_page():
       data={
         "Application name": ["AI advisor application (RAG)", "Agentic Shopping Assistant", "Multi-agent application"],
         "Last Run": [
-          pd.Timestamp("20251030"),
-          pd.Timestamp("20251021"),
-          pd.Timestamp("20251015"),
+          pd.Timestamp("2025-10-31 10:12:45"),
+          pd.Timestamp("2025-10-28 11:20:22"),
+          pd.Timestamp("2025-10-24 12:03:11"),
         ],
       }
     )

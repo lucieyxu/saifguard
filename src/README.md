@@ -39,3 +39,55 @@ If you have the following error: google.auth.exceptions.RefreshError: Reauthenti
 Make sure you are authenticated with `gcloud auth application-default login`.
 
 Make sure Vertex AI API is enabled in your project: `gcloud services enable aiplatform.googleapis.com --project [YOUR PROJECT]`.
+
+## Instructions to deploy to Cloud Run
+
+### Prerequisites
+
+1.  **Permissions**: Ensure the user running the commands has the `Artifact Registry Administrator` (`roles/artifactregistry.admin`) and `Cloud Run Developer` (`roles/run.developer`) roles on the project.
+
+2.  **Enable APIs**: Make sure the required APIs are enabled:
+```bash
+gcloud services enable artifactregistry.googleapis.com cloudbuild.googleapis.com run.googleapis.com --project=${PROJECT_ID}
+```
+
+### Deployment Steps
+
+1.  **Add Gunicorn**: For production deployments on Cloud Run, you'll need a production-grade server.
+    ```bash
+    poetry add gunicorn
+    ```
+
+2.  **Update requirements**: Export your dependencies to `requirements.txt`.
+    ```bash
+    poetry export -f requirements.txt --output requirements.txt --without-hashes
+    ```
+
+3.  **Create Artifact Registry repository** (only needs to be done once):
+```bash
+gcloud artifacts repositories create saifguard \
+    --repository-format=docker \
+    --location=europe-west1 \
+    --project=${PROJECT_ID}
+```
+Build container image: `gcloud builds submit --tag "europe-west1-docker.pkg.dev/${PROJECT_ID}/saifguard/saifguard-ui:latest"`
+Deploy to Cloud Run: 
+```bash
+gcloud run deploy saifguard-ui \
+  --image="europe-west1-docker.pkg.dev/saifguard/saifguard/saifguard-ui:latest" \
+  --region="europe-west1" \
+  --allow-unauthenticated \
+  --port="8080" \
+  --set-env-vars="MESOP_RUN_TARGET=src.front" \
+  --project="saifguard"
+```
+
+Trying to deploy from source: 
+```bash
+gcloud run deploy saifguard-ui \
+  --source . \
+  --region="europe-west1" \
+  --allow-unauthenticated \
+  --port="8080" \
+  --project="saifguard"
+```
