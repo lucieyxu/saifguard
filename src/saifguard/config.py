@@ -1,9 +1,11 @@
-PROJECT_ID = "saifguard-gf-rrag-0"
-REGION = "europe-west4"
-MODEL = "gemini-2.5-flash"
-GENERATE_DASHBOARD = True
-DASHBOARD_BQ_PROJECT = "saifguard"
-DASHBOARD_BQ_LOCATION = "dashboard.vulnerabilities"
+import os
+
+PROJECT_ID = os.environ.get("PROJECT_ID", "saifguard")
+REGION = os.environ.get("REGION", "europe-west1")
+MODEL = os.environ.get("MODEL", "gemini-2.5-flash")
+GENERATE_DASHBOARD = os.environ.get("GENERATE_DASHBOARD", "True").lower() == "true"
+DASHBOARD_BQ_PROJECT = os.environ.get("DASHBOARD_BQ_PROJECT", "saifguard")
+DASHBOARD_BQ_LOCATION = os.environ.get("DASHBOARD_BQ_LOCATION", "dashboard.vulnerabilities")
 GOOGLE_SEARCH_SAIF_PROMPT = """
 <Task>
 Retrieve the latest, comprehensive documentation for Google's Secure AI Framework (SAIF).

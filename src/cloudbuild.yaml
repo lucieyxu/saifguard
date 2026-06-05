@@ -1,0 +1,68 @@
+steps:
+  # 1. Pull the latest image to use as cache-from (ignore if it doesn't exist yet)
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'Pull Cache'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - 'docker pull ${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}:latest || true'
+
+  # 2. Build the container image using BuildKit and the pulled image for caching
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'Build Image'
+    env:
+      - 'DOCKER_BUILDKIT=1'
+    args:
+      - 'build'
+      - '--cache-from'
+      - '${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}:latest'
+      - '--build-arg'
+      - 'BUILDKIT_INLINE_CACHE=1'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}:${_TAG}'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}:latest'
+      - '.'
+
+  # 3. Push the versioned build image to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'Push Image'
+    args:
+      - 'push'
+      - '${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}:${_TAG}'
+
+  # 4. Push the latest image to Artifact Registry for caching next time
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'Push Latest Image for Cache'
+    args:
+      - 'push'
+      - '${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}:latest'
+
+  # 5. Deploy to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'Deploy to Cloud Run'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - '${_SERVICE_NAME}'
+      - '--image'
+      - '${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}:${_TAG}'
+      - '--region'
+      - '${_REGION}'
+      - '--project'
+      - '${_PROJECT_ID}'
+      - '--platform'
+      - 'managed'
+      - '--set-env-vars'
+      - 'APP_TYPE=${_APP_TYPE},GOOGLE_CLOUD_PROJECT=${_PROJECT_ID},GOOGLE_CLOUD_LOCATION=${_REGION}'
+      - '--service-account'
+      - 'saifguard-sa@${_PROJECT_ID}.iam.gserviceaccount.com'
+
+substitutions:
+  _PROJECT_ID: 'saifguard'
+  _REGION: 'europe-west1'
+  _AR_REPO: 'saifguard-registry'
+  _SERVICE_NAME: 'saifguard-ui'
+  _APP_TYPE: 'mesop'
+  _TAG: 'latest'

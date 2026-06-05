@@ -81,5 +81,6 @@ class SAIFGuardAgent:
                 and "parts" in event["content"]
                 and "function_response" in event["content"]["parts"][0]
             ):
-                # Yield tool message to pass in conversation history
-                yield f'*tool*: {"\n".join([part["function_response"]["response"]["result"] for part in event["content"]["parts"]])}'
+                results = [part["function_response"]["response"]["result"] for part in event["content"]["parts"]]
+                joined_results = "\n".join(results)
+                yield f'*tool*: {joined_results}'
