@@ -1,3 +1,4 @@
+import datetime
 import random
 import time
 from dataclasses import asdict, dataclass
@@ -12,7 +13,7 @@ Role = Literal["user", "bot"]
 
 
 _APP_TITLE = "SAIFGuard"
-_BOT_AVATAR_LETTER = "M"
+_BOT_AVATAR_LETTER = "S"
 _EMPTY_CHAT_MESSAGE = "Get started with an example"
 _EXAMPLE_USER_QUERIES = (
   "What is SAIFGuard?",
@@ -24,6 +25,11 @@ _MOBILE_BREAKPOINT = 640
 
 agent = SAIFGuardAgent()
 
+
+def _current_timestamp() -> str:
+  return datetime.datetime.now().strftime("%H:%M")
+
+
 @dataclass(kw_only=True)
 class ChatMessage:
   """Chat message metadata."""
@@ -31,6 +37,8 @@ class ChatMessage:
   role: Role = "user"
   content: str = ""
   edited: bool = False
+  model: str = ""
+  timestamp: str = ""
   # 1 is positive
   # -1 is negative
   # 0 is no rating
@@ -43,23 +51,22 @@ class State:
   output: list[ChatMessage]
   in_progress: bool
   sidebar_expanded: bool = False
+  selected_model: str = "gemini-3.6-flash"
   # Need to use dict instead of ChatMessage due to serialization bug.
   # See: https://github.com/mesop-dev/mesop/issues/659
   history: list[list[dict]]
 
 
 def respond_to_chat(input: str, history: list[ChatMessage]):
-  """Displays random canned text.
-
-  Edit this function to process messages with a real chatbot/LLM.
-  """
+  state = me.state(State)
   agent_input = ""
   for message in history:
     agent_input += f"""
 *{message.role}*: {message.content}
 """
 
-  response = agent.invoke(user_id="test", message=agent_input)
+  selected_model = getattr(state, "selected_model", None) or "gemini-3.6-flash"
+  response = agent.invoke(user_id="test", message=agent_input, model=selected_model)
   for line in response:
     time.sleep(0.3)
     yield line + " "
@@ -178,6 +185,11 @@ def history_pane():
       me.text(_truncate_text(chat[0]["content"]))
 
 
+def on_model_selection_change(e: me.SelectSelectionChangeEvent):
+  state = me.state(State)
+  state.selected_model = e.value
+
+
 def header():
   state = me.state(State)
   with me.box(
@@ -185,12 +197,12 @@ def header():
       align_items="center",
       background=me.theme_var("surface-container-lowest"),
       display="flex",
-      gap=5,
+      gap=10,
       justify_content="space-between",
       padding=me.Padding.symmetric(horizontal=20, vertical=10),
     )
   ):
-    with me.box(style=me.Style(display="flex", gap=5)):
+    with me.box(style=me.Style(display="flex", gap=5, align_items="center")):
       if not state.sidebar_expanded:
         me.text(
           _APP_TITLE,
@@ -198,7 +210,19 @@ def header():
           type="headline-6",
         )
 
-    with me.box(style=me.Style(display="flex", gap=5)):
+    with me.box(style=me.Style(display="flex", gap=10, align_items="center")):
+      me.select(
+        label="Model",
+        options=[
+          me.SelectOption(label="Gemini 3.6 Flash", value="gemini-3.6-flash"),
+          me.SelectOption(label="Gemini 3.5 Flash", value="gemini-3.5-flash"),
+          me.SelectOption(label="Gemini 3.5 Flash Lite", value="gemini-3.5-flash-lite"),
+          me.SelectOption(label="Gemini 3.1 Pro", value="gemini-3.1-pro"),
+        ],
+        value=state.selected_model or "gemini-3.6-flash",
+        on_selection_change=on_model_selection_change,
+        style=me.Style(width="220px"),
+      )
       icon_button(
         key="",
         icon="dark_mode" if me.theme_brightness() == "light" else "light_mode",
@@ -271,8 +295,8 @@ def user_message(*, message: ChatMessage):
   with me.box(
     style=me.Style(
       display="flex",
-      gap=15,
-      justify_content="end",
+      flex_direction="column",
+      align_items="flex-end",
       margin=me.Margin.all(20),
     )
   ):
@@ -286,6 +310,16 @@ def user_message(*, message: ChatMessage):
       )
     ):
       me.markdown(message.content)
+    if message.timestamp:
+      me.text(
+        message.timestamp,
+        style=me.Style(
+          color=me.theme_var("outline"),
+          font_size=11,
+          margin=me.Margin(top=4, right=4),
+          opacity=0.75,
+        ),
+      )
 
 
 def bot_message(*, message_index: int, message: ChatMessage):
@@ -303,28 +337,45 @@ def bot_message(*, message_index: int, message: ChatMessage):
         style=me.Style(color=me.theme_var("on-surface")),
       )
 
-      # Actions panel
-      with me.box():
-        icon_button(
-          key=f"thumb_up-{message_index}",
-          icon="thumb_up",
-          is_selected=message.rating == 1,
-          tooltip="Good response",
-          on_click=on_click_thumb_up,
-        )
-        icon_button(
-          key=f"thumb_down-{message_index}",
-          icon="thumb_down",
-          is_selected=message.rating == -1,
-          tooltip="Bad response",
-          on_click=on_click_thumb_down,
-        )
-        icon_button(
-          key=f"restart-{message_index}",
-          icon="restart_alt",
-          tooltip="Regenerate answer",
-          on_click=on_click_regenerate,
-        )
+      # Actions & metadata panel
+      with me.box(style=me.Style(display="flex", align_items="center", gap=15, margin=me.Margin(top=5))):
+        with me.box(style=me.Style(display="flex")):
+          icon_button(
+            key=f"thumb_up-{message_index}",
+            icon="thumb_up",
+            is_selected=message.rating == 1,
+            tooltip="Good response",
+            on_click=on_click_thumb_up,
+          )
+          icon_button(
+            key=f"thumb_down-{message_index}",
+            icon="thumb_down",
+            is_selected=message.rating == -1,
+            tooltip="Bad response",
+            on_click=on_click_thumb_down,
+          )
+          icon_button(
+            key=f"restart-{message_index}",
+            icon="restart_alt",
+            tooltip="Regenerate answer",
+            on_click=on_click_regenerate,
+          )
+        metadata_parts = []
+        if message.model:
+          metadata_parts.append(f"Model: {message.model}")
+        if message.timestamp:
+          metadata_parts.append(message.timestamp)
+
+        if metadata_parts:
+          me.text(
+            " • ".join(metadata_parts),
+            style=me.Style(
+              color=me.theme_var("outline"),
+              font_size=12,
+              font_style="italic",
+              opacity=0.75,
+            ),
+          )
 
 
 def chat_input():
@@ -575,7 +626,7 @@ def _submit_chat_msg():
 
   # 1. Add the user's message to the output and clear the input field
   user_input = state.input
-  state.output.append(ChatMessage(role="user", content=user_input))
+  state.output.append(ChatMessage(role="user", content=user_input, timestamp=_current_timestamp()))
   state.input = ""
   state.in_progress = True
   me.scroll_into_view(key="scroll-to")
@@ -586,6 +637,8 @@ def _submit_chat_msg():
   
   # This variable will point to the message we are actively streaming the final answer into.
   current_final_message = None
+
+  selected_model = getattr(state, "selected_model", "") or "gemini-3.6-flash"
 
   for chunk in response_generator:
     is_tool_response = chunk.strip().startswith("*tool*:")
@@ -600,7 +653,7 @@ def _submit_chat_msg():
       # This is a chunk of the final, visible agent answer.
       if current_final_message is None:
         # This is the *first* chunk. Create a new message for it.
-        new_message = ChatMessage(role="bot", content=chunk)
+        new_message = ChatMessage(role="bot", content=chunk, model=selected_model, timestamp=_current_timestamp())
         state.output.append(new_message)
         current_final_message = new_message
       else:

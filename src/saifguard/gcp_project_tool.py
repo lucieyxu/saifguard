@@ -147,6 +147,13 @@ Think step by step:
 """
 
 
+class MissingPermissionsError(Exception):
+    def __init__(self, project_id: str, original_error: str):
+        self.project_id = project_id
+        self.original_error = original_error
+        super().__init__(f"Missing permissions for project {project_id}: {original_error}")
+
+
 def gcp_project_tool(gcp_project_id: str):
     """Analyze a GCP project referenced by a GCP project ID.
 
@@ -223,7 +230,7 @@ def gcp_project_tool(gcp_project_id: str):
                 client = genai.Client(
                     vertexai=True,
                     project=PROJECT_ID,
-                    location=REGION,
+                    location=VERTEX_LOCATION,
                 )
                 response = client.models.generate_content(
                     model=MODEL,
@@ -251,7 +258,54 @@ def gcp_project_tool(gcp_project_id: str):
                 LOGGER.warning(f"Error when publishing to dashboard: {e}")
 
         return response.text
+    except MissingPermissionsError as e:
+        sa_email = f"saifguard-sa@{PROJECT_ID}.iam.gserviceaccount.com"
+        error_msg = f"""
+⚠️ **Missing Permissions to Access GCP Project `{gcp_project_id}`**
+
+SAIFGuard does not have the required permissions to query Cloud Asset Inventory in project `{gcp_project_id}`, or the `cloudasset.googleapis.com` API is disabled.
+
+### 📋 Instructions to Grant IAM Permissions
+
+To allow SAIFGuard's Service Account (`{sa_email}`) to inspect project `{gcp_project_id}`, execute the following commands in Google Cloud Shell or terminal:
+
+1. **Enable the Cloud Asset API** in project `{gcp_project_id}`:
+   ```bash
+   gcloud services enable cloudasset.googleapis.com --project={gcp_project_id}
+   ```
+
+2. **Grant Cloud Asset Viewer Role** to SAIFGuard's Service Account:
+   ```bash
+   gcloud projects add-iam-policy-binding {gcp_project_id} \\
+     --member="serviceAccount:{sa_email}" \\
+     --role="roles/cloudasset.viewer"
+   ```
+
+*Error Details:* `{e.original_error}`
+"""
+        LOGGER.warning(f"Returning missing permissions message for project {gcp_project_id}")
+        return error_msg.strip()
     except Exception as e:
+        err_str = str(e)
+        if any(keyword in err_str.lower() for keyword in ["403", "permission", "forbidden", "denied"]):
+            sa_email = f"saifguard-sa@{PROJECT_ID}.iam.gserviceaccount.com"
+            return f"""
+⚠️ **Missing Permissions to Access GCP Project `{gcp_project_id}`**
+
+SAIFGuard encountered a permission error while analyzing project `{gcp_project_id}`.
+
+### 📋 Instructions to Grant IAM Permissions
+
+Grant the **Cloud Asset Viewer** role to SAIFGuard's Service Account (`{sa_email}`):
+
+```bash
+gcloud projects add-iam-policy-binding {gcp_project_id} \\
+  --member="serviceAccount:{sa_email}" \\
+  --role="roles/cloudasset.viewer"
+```
+
+*Error Details:* `{err_str}`
+""".strip()
         message = f"An exception occurred while calling GCP project tool: {e}"
         LOGGER.error(message)
         LOGGER.error(f"Traceback: {traceback.format_exc()}")
@@ -315,5 +369,9 @@ def _get_asset_inventory_resources(
         LOGGER.info(f"Fetching Asset Inventory resources took {time.time() - start_time:.2f} seconds.")
         return all_resources
     except Exception as e:
+        err_str = str(e)
+        if any(keyword in err_str.lower() for keyword in ["403", "permission", "forbidden", "denied", "not enabled", "has not been used", "not found"]):
+            LOGGER.error(f"Permission or API error accessing Cloud Asset Inventory for project {project_id}: {e}")
+            raise MissingPermissionsError(project_id=project_id, original_error=err_str)
         LOGGER.error(f"An unexpected error occurred while fetching assets: {e}")
         return []
