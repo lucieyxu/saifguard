@@ -6,7 +6,7 @@ from google.genai import types
 from saifguard.analysis_tool import analysis_tool
 from saifguard.gcp_project_tool import gcp_project_tool
 from saifguard.google_search_tool import google_search_tool
-from saifguard.config import MODEL, PROJECT_ID, REGION
+from saifguard.config import MODEL, PROJECT_ID, REGION, VERTEX_LOCATION
 from vertexai.preview.reasoning_engines import AdkApp
 
 LOGGER = logging.getLogger(__name__)
@@ -18,7 +18,7 @@ Focus on model and AI security first.
 </OBJECTIVE_AND_PERSONA>
 
 <INSTRUCTIONS>
-To complete the task, think step by step and print out the thinking process. Use the tools you have available:
+To complete the task, think step by step. Use the tools you have available:
 * Always use the `google_search_tool` tool to get the latest SAIF framework recommendations, use the pages "https://saif.google/ai-development-primer", "https://saif.google/secure-ai-framework/risks", "https://saif.google/secure-ai-framework/controls"
 * Use the `analysis_tool` tool when the user provides a GCS path to analyse
 * Use the `gcp_project_tool` tool when the user asks to scan a GCP project to check the resources created
@@ -37,7 +37,7 @@ class SAIFGuardAgent:
     """Main class for SAIFGuard Agent definition"""
 
     def __init__(self):
-        aiplatform.init(project=PROJECT_ID, location=REGION)
+        aiplatform.init(project=PROJECT_ID, location=VERTEX_LOCATION)
 
         safety_settings = [
             types.SafetySetting(

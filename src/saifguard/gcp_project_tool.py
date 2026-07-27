@@ -23,6 +23,7 @@ from saifguard.config import (
     MODEL,
     PROJECT_ID,
     REGION,
+    VERTEX_LOCATION,
 )
 from saifguard.google_search_tool import google_search_tool
 
@@ -193,7 +194,7 @@ def gcp_project_tool(gcp_project_id: str):
         client = genai.Client(
             vertexai=True,
             project=PROJECT_ID,
-            location=REGION,
+            location=VERTEX_LOCATION,
         )
         response = client.models.generate_content(
             model=MODEL,

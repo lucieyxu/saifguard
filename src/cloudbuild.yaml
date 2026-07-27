@@ -55,13 +55,14 @@ steps:
       - '--platform'
       - 'managed'
       - '--set-env-vars'
-      - 'APP_TYPE=${_APP_TYPE},GOOGLE_CLOUD_PROJECT=${_PROJECT_ID},GOOGLE_CLOUD_LOCATION=${_REGION}'
+      - 'APP_TYPE=${_APP_TYPE},PROJECT_ID=${_PROJECT_ID},REGION=${_REGION},VERTEX_LOCATION=${_VERTEX_LOCATION},GOOGLE_CLOUD_PROJECT=${_PROJECT_ID},GOOGLE_CLOUD_LOCATION=${_REGION},DASHBOARD_BQ_PROJECT=${_PROJECT_ID}'
       - '--service-account'
       - 'saifguard-sa@${_PROJECT_ID}.iam.gserviceaccount.com'
 
 substitutions:
   _PROJECT_ID: 'saifguard'
   _REGION: 'europe-west1'
+  _VERTEX_LOCATION: 'global'
   _AR_REPO: 'saifguard-registry'
   _SERVICE_NAME: 'saifguard-ui'
   _APP_TYPE: 'mesop'

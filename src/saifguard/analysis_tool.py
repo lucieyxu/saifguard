@@ -4,7 +4,7 @@ import traceback
 from google.cloud import storage
 from google import genai
 from google.genai import types
-from saifguard.config import MODEL, PROJECT_ID, REGION, GOOGLE_SEARCH_SAIF_PROMPT
+from saifguard.config import MODEL, PROJECT_ID, REGION, VERTEX_LOCATION, GOOGLE_SEARCH_SAIF_PROMPT
 from saifguard.google_search_tool import google_search_tool
 
 LOGGER = logging.getLogger(__name__)
@@ -99,7 +99,7 @@ def analysis_tool(gcs_uri: str):
         client = genai.Client(
             vertexai=True,
             project=PROJECT_ID,
-            location=REGION,
+            location=VERTEX_LOCATION,
         )
         response = client.models.generate_content(
             model=MODEL,

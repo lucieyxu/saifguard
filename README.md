@@ -3,7 +3,7 @@
 TLDR; SAIFGuard is an ADK-based agent with a Mesop UI and looker dashboard to speed up security reviews and allow AI applications to go to production faster.
 
 ## Context
-### The Problem: The AI Deployment Bottleneck
+### The Problem: The AI Deployment Bottlenecks
 
 In the race to innovate, businesses face a critical roadblock. Deploying AI applications is slow and risky. Traditional security reviews, not designed for the novel threats introduced by AI, create bottlenecks that delay projects for months. As stated by Thiébaut Meyer, Director in the Office of the CISO, "Customers need to tackle security risks in their application deployments and don’t have the right tool to do so”. This friction slows innovation and puts applications at risk.
 
@@ -24,63 +24,174 @@ SAIFGuard provides a comprehensive security overview by analyzing your entire AI
 
 
 ## Local Setup
-Change constants in ./saifguard/config.py.
 
-If you want to publish the dashboards again when running a project scan, set the environment variable GENERATE_DASHBOARD to True.
+Configure environment constants in `src/saifguard/config.py`.
 
-### Run with FastAPI
-```
+To publish dashboard metrics during scans, set `GENERATE_DASHBOARD=True`.
+
+### Run Backend (FastAPI)
+```bash
 cd src
 poetry install
 poetry run uvicorn app:app --host 0.0.0.0 --port 8080 --reload
 ```
 
-Once the app is up, in another terminal, you can curl the invoke api to call the agent:
-```
+Health check endpoint:
+```bash
 curl -X GET "http://127.0.0.1:8080/healthcheck"
 ```
 
-Example to call analysis tool:
-```
-curl -N -X POST "http://127.0.0.1:8080/invoke" -H "Content-Type: application/json" -d '{
+Invoke analysis endpoint:
+```bash
+curl -N -X POST "http://127.0.0.1:8080/invoke" \
+  -H "Content-Type: application/json" \
+  -d '{
     "user_id": "test-user-1",
-    "message": "Please analyze the document at gs://[YOUR BUCKET]/[YOUR FILE].pdf"
-}'
+    "message": "Analyze the document at gs://[YOUR_BUCKET]/[YOUR_FILE].pdf"
+  }'
 ```
 
-### Run with UI
-```
+### Run Frontend (Mesop UI)
+```bash
 cd src
 poetry install
 poetry run mesop front.py
 ```
 
+---
+
 ## Troubleshooting
 
-If you have the following error: google.auth.exceptions.RefreshError: Reauthentication is needed. Please run `gcloud auth application-default login` to reauthenticate.
+#### Google Auth Refresh Error
+If you encounter `google.auth.exceptions.RefreshError: Reauthentication is needed`:
+- Run `gcloud auth application-default login` to refresh credentials.
+- Ensure Vertex AI API is enabled: `gcloud services enable aiplatform.googleapis.com --project [YOUR_PROJECT_ID]`.
 
-Make sure you are authenticated with `gcloud auth application-default login`.
+#### Cloud Build Source Storage / Artifact Registry 403 Forbidden
+If Cloud Build fails with `Error 403: ... compute@developer.gserviceaccount.com does not have storage.objects.get` or `artifactregistry.repositories.downloadArtifacts`:
+- Ensure both default compute and Cloud Build service accounts have the required read/write roles:
+```bash
+PROJECT_NUMBER=$(gcloud projects describe "YOUR_PROJECT_ID" --format="value(projectNumber)")
 
-Make sure Vertex AI API is enabled in your project: `gcloud services enable aiplatform.googleapis.com --project [YOUR PROJECT]`.
+gcloud projects add-iam-policy-binding "YOUR_PROJECT_ID" \
+  --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+  --role="roles/storage.objectViewer"
+
+gcloud projects add-iam-policy-binding "YOUR_PROJECT_ID" \
+  --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+  --role="roles/artifactregistry.writer"
+```
+
+#### Cloud Run URL Returns 403 Forbidden in Browser
+Standard browsers do not attach GCP Bearer tokens when navigating to Cloud Run URLs.
+- **Option A (Proxy)**: Run `gcloud run services proxy saifguard-ui --region=YOUR_REGION --project=YOUR_PROJECT_ID` and navigate to `http://localhost:8080`.
+- **Option B (Direct IAP)**: Enable Direct IAP (`gcloud run services update saifguard-ui --iap`) and assign `roles/iap.httpsResourceAccessor` to your account or domain.
+
+#### Vertex AI Model 404 / Invalid Region Error
+If you encounter `Publisher model ... was not found`:
+- Set `VERTEX_LOCATION="global"` (or pass `VERTEX_LOCATION=global` in `--set-env-vars`) so global models route to the global multi-region endpoint instead of single-region endpoints.
+
+---
 
 ## Google Cloud Run Deployment
 
-We have added a production-grade containerized deployment configuration to run SAIFGuard inside Google Cloud Run. This setup uses a unified Docker container capable of serving either the **interactive Mesop UI** or the **FastAPI backend**.
+SAIFGuard includes a containerized deployment configuration for Google Cloud Run using a unified Docker container capable of serving either the **Mesop UI** or the **FastAPI backend**.
 
-### 📂 Deployment Files Created
-* `src/Dockerfile`: Multi-stage secure Python container (executes as non-root `appuser`).
-* `src/entrypoint.sh`: Entrypoint router script to switch between UI and backend.
+### Deployment Files
+* `src/Dockerfile`: Multi-stage Python container executing as non-root `appuser`.
+* `src/entrypoint.sh`: Router script to select UI or API execution mode.
 * `src/run_front.py`: Bypasses Mesop localhost binding to support Cloud Run `0.0.0.0` TCP startup probes.
-* `src/cloudbuild.yaml`: Google Cloud Build pipeline supporting Artifact Registry build layer caching.
-* `src/requirements.txt`: Frozen dependency lock compiled from pyproject.toml.
-* `src/.dockerignore`: Excludes local cache, virtualenvs, and secrets from the container context.
+* `src/cloudbuild.yaml`: Google Cloud Build pipeline supporting Artifact Registry layer caching.
+* `src/requirements.txt`: Dependency lock compiled from `pyproject.toml`.
+* `src/.dockerignore`: Excludes cache files and virtual environments.
 
-### 🚀 How to Deploy
+### Prerequisites & Setup
 
-You can build and deploy either service using Google Cloud Build:
+Ensure the required APIs, Artifact Registry repository, and IAM roles are configured prior to submitting builds:
 
-#### 1. Deploy the Interactive Mesop UI (Default)
-This is the web interface where you can chat with the SAIFGuard agent:
+#### 1. Enable Required APIs
+```bash
+gcloud services enable \
+  aiplatform.googleapis.com \
+  artifactregistry.googleapis.com \
+  cloudbuild.googleapis.com \
+  run.googleapis.com \
+  cloudasset.googleapis.com \
+  bigquery.googleapis.com \
+  cloudresourcemanager.googleapis.com \
+  iap.googleapis.com \
+  --project="YOUR_PROJECT_ID"
+```
+
+#### 2. Create Artifact Registry Repository
+```bash
+gcloud artifacts repositories create saifguard-registry \
+  --repository-format=docker \
+  --location="YOUR_REGION" \
+  --description="Artifact Registry for SAIFGuard images" \
+  --project="YOUR_PROJECT_ID"
+```
+
+#### 3. Create Service Account & Grant IAM Permissions
+```bash
+# Create service account for SAIFGuard
+gcloud iam service-accounts create saifguard-sa \
+  --display-name="SAIFGuard Service Account" \
+  --project="YOUR_PROJECT_ID"
+
+# Grant SAIFGuard application roles
+gcloud projects add-iam-policy-binding "YOUR_PROJECT_ID" \
+  --member="serviceAccount:saifguard-sa@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+  --role="roles/aiplatform.user"
+
+gcloud projects add-iam-policy-binding "YOUR_PROJECT_ID" \
+  --member="serviceAccount:saifguard-sa@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+  --role="roles/cloudasset.viewer"
+
+gcloud projects add-iam-policy-binding "YOUR_PROJECT_ID" \
+  --member="serviceAccount:saifguard-sa@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+  --role="roles/bigquery.dataEditor"
+
+gcloud projects add-iam-policy-binding "YOUR_PROJECT_ID" \
+  --member="serviceAccount:saifguard-sa@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+  --role="roles/bigquery.jobUser"
+
+# Grant Cloud Build service accounts storage access, registry, logging & deployment permissions
+PROJECT_NUMBER=$(gcloud projects describe "YOUR_PROJECT_ID" --format="value(projectNumber)")
+
+gcloud projects add-iam-policy-binding "YOUR_PROJECT_ID" \
+  --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+  --role="roles/storage.objectViewer"
+
+gcloud projects add-iam-policy-binding "YOUR_PROJECT_ID" \
+  --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+  --role="roles/artifactregistry.writer"
+
+gcloud projects add-iam-policy-binding "YOUR_PROJECT_ID" \
+  --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+  --role="roles/logging.logWriter"
+
+gcloud projects add-iam-policy-binding "YOUR_PROJECT_ID" \
+  --member="serviceAccount:${PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" \
+  --role="roles/artifactregistry.writer"
+
+gcloud projects add-iam-policy-binding "YOUR_PROJECT_ID" \
+  --member="serviceAccount:${PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" \
+  --role="roles/logging.logWriter"
+
+gcloud projects add-iam-policy-binding "YOUR_PROJECT_ID" \
+  --member="serviceAccount:${PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" \
+  --role="roles/run.admin"
+
+gcloud iam service-accounts add-iam-policy-binding "saifguard-sa@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+  --member="serviceAccount:${PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" \
+  --role="roles/iam.serviceAccountUser" \
+  --project="YOUR_PROJECT_ID"
+```
+
+### How to Deploy
+
+#### 1. Deploy the Interactive Mesop UI
 ```bash
 cd src
 gcloud builds submit . \
@@ -89,7 +200,6 @@ gcloud builds submit . \
 ```
 
 #### 2. Deploy the FastAPI Backend API
-This runs the serverless API endpoint for invoking the agent programmatically:
 ```bash
 cd src
 gcloud builds submit . \
@@ -97,7 +207,7 @@ gcloud builds submit . \
   --substitutions=_PROJECT_ID="YOUR_PROJECT_ID",_REGION="YOUR_REGION",_AR_REPO="YOUR_AR_REPOSITORY",_SERVICE_NAME="saifguard-api",_APP_TYPE="api"
 ```
 
-### 🔗 Cross-Project Resource Analysis Setup
+### Cross-Project Resource Analysis Setup
 
 Since SAIFGuard is deployed in the **central security project** (`saifguard`), it needs permission to analyze resources in other target projects (such as `saifguard-usecase`). The target project ID is provided dynamically to the agent as part of your prompt (e.g., *"Scan the project saifguard-usecase"*).
 
@@ -135,6 +245,8 @@ gcloud projects add-iam-policy-binding saifguard \
   --member="serviceAccount:saifguard-sa@saifguard.iam.gserviceaccount.com" \
   --role="roles/aiplatform.user"
 ```
+
+Note that some Gemini models are only available in the `global` multi-region (for example Gemiin 3.6 flash as of July 2026).
 
 #### 📊 BigQuery Permissions for Dashboarding
 
@@ -176,23 +288,31 @@ All recommendations generated by SAIFGuard are stored as structured rows in BigQ
 
 ## 🌐 Securing SAIFGuard with Identity-Aware Proxy (IAP)
 
-To protect the SAIFGuard Mesop UI from public exposure, you can secure it using **Identity-Aware Proxy (IAP)**. This can be done either directly on Cloud Run (using Direct IAP) or through an HTTPS Load Balancer.
+To protect the SAIFGuard Mesop UI without exposing it publicly, you can enable **Direct IAP** directly on Cloud Run (without requiring an external HTTPS Load Balancer):
 
-### 🚨 Troubleshooting: "You don't have access" (IAP Authorization)
+### 1. Enable Direct IAP on Cloud Run
+```bash
+# Enable IAP directly on your Cloud Run service
+gcloud run services update saifguard-ui \
+  --iap \
+  --region="YOUR_REGION" \
+  --project="YOUR_PROJECT_ID"
+```
 
-If you successfully authenticate with Google but receive the message:
-> *You don't have access. User: your-email@domain.com*
-
-This means IAP successfully authenticated your identity, but your account does not have permission to access the secured web app. To grant access, assign the **IAP-secured Web App User** (`roles/iap.httpsResourceAccessor`) role to your user account (or your organization's domain) at the project level:
+### 2. Grant Access Permissions
+Assign the **IAP-secured Web App User** (`roles/iap.httpsResourceAccessor`) role to permitted users or domain members:
 
 ```bash
 # Grant access to a specific user
-gcloud projects add-iam-policy-binding saifguard \
-  --member="user:xxx" \
+gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+  --member="user:your-email@domain.com" \
   --role="roles/iap.httpsResourceAccessor"
 
-# Grant access to all members in an organization domain
-gcloud projects add-iam-policy-binding saifguard \
-  --member="domain:xxx" \
+# Grant access to all users in an organization domain
+gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+  --member="domain:yourdomain.com" \
   --role="roles/iap.httpsResourceAccessor"
 ```
+
+### Troubleshooting: "You don't have access" (IAP Authorization)
+If users receive *You don't have access* after Google login, verify that `roles/iap.httpsResourceAccessor` has been granted to their account or domain.

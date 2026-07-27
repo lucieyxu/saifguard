@@ -1,10 +1,11 @@
 import os
 
-PROJECT_ID = os.environ.get("PROJECT_ID", "saifguard")
-REGION = os.environ.get("REGION", "europe-west1")
-MODEL = os.environ.get("MODEL", "gemini-2.5-flash")
+PROJECT_ID = os.environ.get("PROJECT_ID") or os.environ.get("GOOGLE_CLOUD_PROJECT", "saifguard")
+REGION = os.environ.get("REGION") or os.environ.get("GOOGLE_CLOUD_LOCATION", "europe-west1")
+VERTEX_LOCATION = os.environ.get("VERTEX_LOCATION") or os.environ.get("LOCATION", "global")
+MODEL = os.environ.get("MODEL", "gemini-3.6-flash")
 GENERATE_DASHBOARD = os.environ.get("GENERATE_DASHBOARD", "True").lower() == "true"
-DASHBOARD_BQ_PROJECT = os.environ.get("DASHBOARD_BQ_PROJECT", "saifguard")
+DASHBOARD_BQ_PROJECT = os.environ.get("DASHBOARD_BQ_PROJECT") or PROJECT_ID
 DASHBOARD_BQ_LOCATION = os.environ.get("DASHBOARD_BQ_LOCATION", "dashboard.vulnerabilities")
 GOOGLE_SEARCH_SAIF_PROMPT = """
 <Task>

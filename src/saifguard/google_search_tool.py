@@ -3,7 +3,7 @@ import traceback
 
 from google import genai
 from google.genai import types
-from saifguard.config import MODEL, PROJECT_ID, REGION
+from saifguard.config import MODEL, PROJECT_ID, REGION, VERTEX_LOCATION
 
 LOGGER = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ def google_search_tool(query: str):
         client = genai.Client(
             vertexai=True,
             project=PROJECT_ID,
-            location=REGION,
+            location=VERTEX_LOCATION,
         )
 
         # Define the grounding tool
