@@ -1,6 +1,10 @@
 import logging
+import os
+import uuid
 
 from google.adk.agents import Agent
+from google.adk.runners import Runner
+from google.adk.sessions import InMemorySessionService
 from google.cloud import aiplatform
 from google.genai import types
 from saifguard.analysis_tool import analysis_tool
@@ -8,7 +12,10 @@ from saifguard.gcp_project_tool import gcp_project_tool
 from saifguard.google_search_tool import google_search_tool
 from saifguard.dashboard_tool import publish_dashboard_tool
 from saifguard.config import MODEL, PROJECT_ID, REGION, VERTEX_LOCATION
-from vertexai.preview.reasoning_engines import AdkApp
+
+os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "True"
+os.environ["GOOGLE_CLOUD_PROJECT"] = PROJECT_ID
+os.environ["GOOGLE_CLOUD_LOCATION"] = VERTEX_LOCATION
 
 LOGGER = logging.getLogger(__name__)
 
@@ -44,32 +51,22 @@ To complete the task, think step by step. Use the tools you have available:
 
 
 class SAIFGuardAgent:
-    """Main class for SAIFGuard Agent definition"""
+    """Main class for SAIFGuard Agent definition using ADK 2"""
 
     def __init__(self):
         aiplatform.init(project=PROJECT_ID, location=VERTEX_LOCATION)
         self.default_model = MODEL
-        self._apps = {}
+        self._session_service = InMemorySessionService()
+        self._runners = {}
 
-    def _get_app(self, model_name: str = None):
+    def _get_runner(self, model_name: str = None):
         target_model = model_name or self.default_model
-        if target_model not in self._apps:
-            safety_settings = [
-                types.SafetySetting(
-                    category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-                    threshold=types.HarmBlockThreshold.OFF,
-                ),
-            ]
-            generate_content_config = types.GenerateContentConfig(
-                safety_settings=safety_settings,
-                temperature=0.1,
-            )
+        if target_model not in self._runners:
             agent = Agent(
                 model=target_model,
                 name="SAIFGuard",
                 description="SAIFGuard helps you secure your apps on GCP.",
                 instruction=AGENT_INSTRUCTION_PROMPT,
-                generate_content_config=generate_content_config,
                 tools=[
                     analysis_tool,
                     gcp_project_tool,
@@ -77,32 +74,45 @@ class SAIFGuardAgent:
                     publish_dashboard_tool,
                 ],
             )
-            self._apps[target_model] = AdkApp(agent=agent)
-        return self._apps[target_model]
+            runner = Runner(
+                app_name="saifguard_app",
+                agent=agent,
+                session_service=self._session_service,
+            )
+            self._runners[target_model] = runner
+        return self._runners[target_model]
 
     def invoke(self, user_id: str, message: str, model: str = None):
         target_model = model or self.default_model
-        app = self._get_app(target_model)
-        LOGGER.info(f"Invoking the agent for user {user_id} with model {target_model}, message: {message}")
-        for event in app.stream_query(
-            user_id=user_id,
-            message=message,
+        runner = self._get_runner(target_model)
+        LOGGER.info(f"Invoking ADK 2 agent for user {user_id} with model {target_model}, message: {message}")
+
+        session_id = f"session_{user_id}"
+        try:
+            self._session_service.create_session_sync(
+                app_name="saifguard_app", user_id=user_id, session_id=session_id
+            )
+        except Exception:
+            pass  # Session already exists
+
+        user_content = types.Content(
+            role="user", parts=[types.Part.from_text(text=message)]
+        )
+
+        for event in runner.run(
+            user_id=user_id, session_id=session_id, new_message=user_content
         ):
-            LOGGER.info("**** START EVENT *****")
+            LOGGER.info("**** START ADK 2 EVENT *****")
             LOGGER.info(event)
-            LOGGER.info("**** END EVENT *****")
-            if (
-                "content" in event
-                and "parts" in event["content"]
-                and "text" in event["content"]["parts"][0]
-            ):
-                yield "\n".join([part["text"] for part in event["content"]["parts"]])
-            
-            if (
-                "content" in event
-                and "parts" in event["content"]
-                and "function_response" in event["content"]["parts"][0]
-            ):
-                results = [part["function_response"]["response"]["result"] for part in event["content"]["parts"]]
-                joined_results = "\n".join(results)
-                yield f'*tool*: {joined_results}'
+            LOGGER.info("**** END ADK 2 EVENT *****")
+
+            if hasattr(event, "content") and event.content and hasattr(event.content, "parts") and event.content.parts:
+                for part in event.content.parts:
+                    if hasattr(part, "text") and part.text:
+                        yield part.text
+                    elif hasattr(part, "function_response") and part.function_response:
+                        try:
+                            result = part.function_response.response.get("result", "")
+                            yield f"*tool*: {result}"
+                        except Exception:
+                            pass
