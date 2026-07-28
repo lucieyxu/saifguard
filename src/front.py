@@ -210,7 +210,6 @@ def header():
           type="headline-6",
         )
 
-    with me.box(style=me.Style(display="flex", gap=10, align_items="center")):
       me.select(
         label="Model",
         options=[
@@ -222,6 +221,12 @@ def header():
         value=state.selected_model or "gemini-3.6-flash",
         on_selection_change=on_model_selection_change,
         style=me.Style(width="220px"),
+      )
+      icon_button(
+        key="btn_generate_dashboard",
+        icon="analytics",
+        tooltip="Generate / Update Data Studio Dashboard",
+        on_click=on_click_header_dashboard,
       )
       icon_button(
         key="",
@@ -359,6 +364,12 @@ def bot_message(*, message_index: int, message: ChatMessage):
             icon="restart_alt",
             tooltip="Regenerate answer",
             on_click=on_click_regenerate,
+          )
+          icon_button(
+            key=f"dashboard-{message_index}",
+            icon="analytics",
+            tooltip="Publish / Update Data Studio Dashboard",
+            on_click=on_click_publish_msg_dashboard,
           )
         metadata_parts = []
         if message.model:
@@ -515,6 +526,26 @@ def on_click_example_user_query(e: me.ClickEvent):
   _, example_index = e.key.split("-")
   state.input = _EXAMPLE_USER_QUERIES[int(example_index)]
   me.focus_component(key="chat_input")
+
+
+def on_click_header_dashboard(e: me.ClickEvent):
+  """Populates user prompt to trigger dashboard generation."""
+  state = me.state(State)
+  state.input = "Publish the latest security audit findings to the Data Studio BigQuery dashboard."
+  me.focus_component(key="chat_input")
+
+
+def on_click_publish_msg_dashboard(e: me.ClickEvent):
+  """Populates user prompt to publish a specific message's findings to the dashboard."""
+  state = me.state(State)
+  _, msg_index = e.key.split("-")
+  msg_index = int(msg_index)
+  target_msg = state.output[msg_index]
+  state.input = f"Publish the following security audit findings to the Data Studio BigQuery dashboard:\n\n{target_msg.content}"
+  me.focus_component(key="chat_input")
+
+
+
 
 
 def on_click_thumb_up(e: me.ClickEvent):

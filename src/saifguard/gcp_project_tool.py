@@ -25,9 +25,32 @@ from saifguard.config import (
     REGION,
     VERTEX_LOCATION,
 )
+from concurrent.futures import ThreadPoolExecutor
 from saifguard.google_search_tool import google_search_tool
+from saifguard.dashboard_tool import publish_dashboard_async
 
 LOGGER = logging.getLogger(__name__)
+
+_ASSET_CLIENT = None
+_GENAI_CLIENT = None
+
+
+def _get_asset_client():
+    global _ASSET_CLIENT
+    if _ASSET_CLIENT is None:
+        _ASSET_CLIENT = asset_v1.AssetServiceClient()
+    return _ASSET_CLIENT
+
+
+def _get_genai_client():
+    global _GENAI_CLIENT
+    if _GENAI_CLIENT is None:
+        _GENAI_CLIENT = genai.Client(
+            vertexai=True,
+            project=PROJECT_ID,
+            location=VERTEX_LOCATION,
+        )
+    return _GENAI_CLIENT
 
 
 DISCOVERY_TOOL_SYSTEM_PROMPT = """
@@ -93,60 +116,6 @@ Generate your final report in Markdown. For each vulnerability you discover, pro
 DISCOVERY_TOOL_QUERY_PROMPT = "Inspect the GCP project assets provided and generate detailed recommendations to improve the overall security posture. Use the provided Google Search results for the latest SAIF compliance recommendations as a reference."
 
 
-DASHBOARD_SYSTEM_PROMPT = """
-<OBJECTIVE>
-A list of vulnerability descriptions from a GCP project is given to you as text. 
-You need to transform it into a dataframe to pass to BigQuery for dashboarding.
-You need to extract the google cloud console URL for each vulnerable resources to allow the user to click on it.
-</OBJECTIVE>
-
-<INSTRUCTIONS>
-Think step by step:
-1. Identify the vulnerable GCP resources.
-2. For each resource, extract the location given as a the name from asset inventory command and produce the GCP console URL. Extract the vulnerability name, description and remediation.
-</INSTRUCTIONS>
-
-<FEW_SHOT_EXAMPLES>
-# Example 1
-## Input
-**Vulnerabilities:** 
-\n\n### 🔴 Critical\n\n* Lack of Web Application Firewall (WAF) / DDoS Protection on External Load Balancer\n    *   **Location:** `//compute.googleapis.com/projects/[PROJECT_ID]/global/backendServices/[BACKEND SERVICE NAME]`\n    *   **Description:** The external HTTP(S) Load Balancer\'s backend service (`[BACKEND SERVICE NAME]`) does not have a Cloud Armor security policy attached    *   **Remediation:** Attach a Cloud Armor security policy
-\n\n### 🔴 Medium\n\n* Disabled Backups for Cloud SQL Instance\n    *   **Location:** `//cloudsql.googleapis.com/projects/[PROJECT_ID]/instances/[CLOUD SQL INSTANCE NAME]`\n    *   **Description:** The Cloud SQL instance `[CLOUD SQL INSTANCE NAME]` has automated backups disabled *   **Remediation:** Enable automated backups
-
-##Thoughts
-1. There are 2 vulnerabilities listed, the first on the external load balancer backend service, the second on Cloud SQL instance
-2. //compute.googleapis.com/projects/[PROJECT_ID]/global/backendServices/[BACKEND SERVICE NAME] is mapped to the console URL https://console.cloud.google.com/net-services/loadbalancing/backends/details/backendService/[BACKEND SERVICE NAME]?project=[PROJECT_ID]
-//cloudsql.googleapis.com/projects/[PROJECT_ID]/instances/[CLOUD SQL INSTANCE NAME] is mapped to the console URL https://console.cloud.google.com/sql/instances/[CLOUD SQL INSTANCE NAME]/overview?project=[PROJECT_ID]
-
-## Output
-[
-    {
-        severity: "Critical"
-        category: "Load Balancer"
-        name: "Lack of Web Application Firewall (WAF) / DDoS Protection on External Load Balancer"
-        description: "The external HTTP(S) Load Balancer\'s backend service (`[BACKEND SERVICE NAME]`) does not have a Cloud Armor security policy attached"
-        remediation: "Attach a Cloud Armor security policy"
-        url: "https://console.cloud.google.com/net-services/loadbalancing/backends/details/backendService/[BACKEND SERVICE NAME]?project=[PROJECT_ID]"
-    },
-    {
-        severity: "Medium"
-        category: "Cloud SQL"
-        name: "Disabled Backups for Cloud SQL Instance"
-        description: "The Cloud SQL instance `[CLOUD SQL INSTANCE NAME]` has automated backups disabled"
-        remediation: "Enable automated backups"
-        url: "https://console.cloud.google.com/sql/instances/[CLOUD SQL INSTANCE NAME]/overview?project=[PROJECT_ID]"
-    }
-]
-</FEW_SHOT_EXAMPLES>
-
-
-<RECAP>
-* Keep the vulnerability name, description and remeidation as is, do not change the text
-* Convert the location into a GCP console URL
-</RECAP>
-"""
-
-
 class MissingPermissionsError(Exception):
     def __init__(self, project_id: str, original_error: str):
         self.project_id = project_id
@@ -163,12 +132,15 @@ def gcp_project_tool(gcp_project_id: str):
     try:
         LOGGER.info(f"Calling GCP project tool with project: {gcp_project_id}")
 
-        LOGGER.info("Fetching latest SAIF recommendations using Google Search.")
         start_time = time.time()
-        saif_recommendations = google_search_tool(GOOGLE_SEARCH_SAIF_PROMPT)
-        LOGGER.info(f"Fetching SAIF recommendations took {time.time() - start_time:.2f} seconds.")
+        # Run Google Search SAIF fetch & Asset Inventory export concurrently
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            future_saif = executor.submit(google_search_tool, GOOGLE_SEARCH_SAIF_PROMPT)
+            future_assets = executor.submit(_get_asset_inventory_resources, gcp_project_id)
+            saif_recommendations = future_saif.result()
+            resources = future_assets.result()
 
-        resources = _get_asset_inventory_resources(gcp_project_id)
+        LOGGER.info(f"Parallel data fetching (SAIF & Asset Inventory) took {time.time() - start_time:.2f} seconds.")
         LOGGER.info(f"Asset Inventory found {len(resources)} resources.")
 
         if resources:
@@ -198,11 +170,7 @@ def gcp_project_tool(gcp_project_id: str):
             f.write(saif_recommendations)
 
         start_time = time.time()
-        client = genai.Client(
-            vertexai=True,
-            project=PROJECT_ID,
-            location=VERTEX_LOCATION,
-        )
+        client = _get_genai_client()
         response = client.models.generate_content(
             model=MODEL,
             contents=contents,
@@ -214,48 +182,8 @@ def gcp_project_tool(gcp_project_id: str):
         LOGGER.info(f"Generating security report took {time.time() - start_time:.2f} seconds.")
         LOGGER.info("Successfully received response from the model.")
         if GENERATE_DASHBOARD:
-            try:
-                query = dedent(
-                    f"""
-                # Vulnerabilities
-                {response.text}
-                """
-                )
-
-                start_time = time.time()
-                contents = [
-                    types.Part.from_text(text=query),
-                ]
-
-                client = genai.Client(
-                    vertexai=True,
-                    project=PROJECT_ID,
-                    location=VERTEX_LOCATION,
-                )
-                response = client.models.generate_content(
-                    model=MODEL,
-                    contents=contents,
-                    config=types.GenerateContentConfig(
-                        system_instruction=DASHBOARD_SYSTEM_PROMPT,
-                        temperature=0.1,
-                        response_mime_type="application/json",
-                        response_schema=VulnerabilityList,
-                    ),
-                )
-                LOGGER.info(f"Generating dashboard data took {time.time() - start_time:.2f} seconds.")
-                vulnerabilities = json.loads(response.text)
-                table = pd.DataFrame(vulnerabilities["vulnerabilities"])
-                table["project_id"] = PROJECT_ID
-                table.to_gbq(
-                    f"{DASHBOARD_BQ_PROJECT}.{DASHBOARD_BQ_LOCATION}",
-                    project_id=DASHBOARD_BQ_PROJECT,
-                    if_exists="replace",
-                )
-                LOGGER.info(
-                    f"Successfully published to dashboard content to BigQuery: {DASHBOARD_BQ_PROJECT}.{DASHBOARD_BQ_LOCATION}"
-                )
-            except Exception as e:
-                LOGGER.warning(f"Error when publishing to dashboard: {e}")
+            LOGGER.info("Triggering async BigQuery dashboard publication.")
+            publish_dashboard_async(response.text, gcp_project_id)
 
         return response.text
     except MissingPermissionsError as e:
@@ -320,7 +248,7 @@ def _get_asset_inventory_resources(
     """
     start_time = time.time()
     try:
-        client = asset_v1.AssetServiceClient()
+        client = _get_asset_client()
         parent_scope = f"projects/{project_id}"
         read_mask = field_mask_pb2.FieldMask(paths=["*"])
 

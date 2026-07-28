@@ -7,6 +7,7 @@ MODEL = os.environ.get("MODEL", "gemini-3.6-flash")
 GENERATE_DASHBOARD = os.environ.get("GENERATE_DASHBOARD", "True").lower() == "true"
 DASHBOARD_BQ_PROJECT = os.environ.get("DASHBOARD_BQ_PROJECT") or PROJECT_ID
 DASHBOARD_BQ_LOCATION = os.environ.get("DASHBOARD_BQ_LOCATION", "dashboard.vulnerabilities")
+DATA_STUDIO_TEMPLATE_REPORT_ID = os.environ.get("DATA_STUDIO_TEMPLATE_REPORT_ID") or os.environ.get("LOOKER_TEMPLATE_REPORT_ID", "08795748-d7d4-44a0-b6f7-272475314ba8")
 GOOGLE_SEARCH_SAIF_PROMPT = """
 <Task>
 Retrieve the latest, comprehensive documentation for Google's Secure AI Framework (SAIF).

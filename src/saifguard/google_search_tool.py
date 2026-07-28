@@ -1,3 +1,4 @@
+import functools
 import logging
 import traceback
 
@@ -7,10 +8,23 @@ from saifguard.config import MODEL, PROJECT_ID, REGION, VERTEX_LOCATION
 
 LOGGER = logging.getLogger(__name__)
 
+_GENAI_CLIENT = None
 
-# Configure the client
+
+def _get_genai_client():
+    global _GENAI_CLIENT
+    if _GENAI_CLIENT is None:
+        _GENAI_CLIENT = genai.Client(
+            vertexai=True,
+            project=PROJECT_ID,
+            location=VERTEX_LOCATION,
+        )
+    return _GENAI_CLIENT
+
+
+@functools.lru_cache(maxsize=32)
 def google_search_tool(query: str):
-    """Use Google Search to answer a question.
+    """Use Google Search to answer a question. Results are cached in-memory.
 
     Args:
         query (str): The user's query that will be searched on Google.
@@ -18,19 +32,14 @@ def google_search_tool(query: str):
     try:
         LOGGER.info(f"Calling Google Search tool with query: {query}")
 
-        # Configure the client to use Vertex AI
-        client = genai.Client(
-            vertexai=True,
-            project=PROJECT_ID,
-            location=VERTEX_LOCATION,
-        )
+        client = _get_genai_client()
 
         # Define the grounding tool
         grounding_tool = types.Tool(google_search=types.GoogleSearch())
 
         # Configure generation settings
         config = types.GenerateContentConfig(
-            tools=[grounding_tool], 
+            tools=[grounding_tool],
             temperature=0.1,
         )
 
@@ -42,7 +51,6 @@ def google_search_tool(query: str):
         )
 
         LOGGER.info("Successfully received response from the model with Google Search grounding.")
-        LOGGER.info(f"Google Search response: {response}")
         return response.text
     except Exception as e:
         message = f"An exception occurred while calling Google Search tool: {e}"
