@@ -116,3 +116,17 @@ class SAIFGuardAgent:
                             yield f"*tool*: {result}"
                         except Exception:
                             pass
+
+
+root_agent = Agent(
+    model=MODEL,
+    name="SAIFGuard",
+    description="SAIFGuard helps you secure your apps on GCP.",
+    instruction=AGENT_INSTRUCTION_PROMPT,
+    tools=[
+        analysis_tool,
+        gcp_project_tool,
+        google_search_tool,
+        publish_dashboard_tool,
+    ],
+)

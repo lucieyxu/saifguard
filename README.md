@@ -58,6 +58,17 @@ poetry install
 poetry run mesop front.py
 ```
 
+### Run Built-in ADK Web UI (Inspect Tool Calls & Traces)
+```bash
+cd src
+poetry install
+poetry run python run_adk_web.py
+# Or directly using adk CLI:
+poetry run adk web . --port 8080
+```
+Open `http://127.0.0.1:8080` in your browser to inspect sessions, tool calls, and execution traces.
+
+
 ---
 
 ## Troubleshooting
@@ -95,12 +106,13 @@ If you encounter `Publisher model ... was not found`:
 
 ## Google Cloud Run Deployment
 
-SAIFGuard includes a containerized deployment configuration for Google Cloud Run using a unified Docker container capable of serving either the **Mesop UI** or the **FastAPI backend**.
+SAIFGuard includes a containerized deployment configuration for Google Cloud Run using a unified Docker container capable of serving the **Mesop UI**, the **FastAPI backend**, or the **built-in ADK Web UI (`adk-web`)**.
 
 ### Deployment Files
 * `src/Dockerfile`: Multi-stage Python container executing as non-root `appuser`.
-* `src/entrypoint.sh`: Router script to select UI or API execution mode.
+* `src/entrypoint.sh`: Router script to select Mesop UI, FastAPI backend, or ADK Web UI execution mode.
 * `src/run_front.py`: Bypasses Mesop localhost binding to support Cloud Run `0.0.0.0` TCP startup probes.
+* `src/run_adk_web.py`: Launches the built-in ADK Web UI (`adk web .`).
 * `src/cloudbuild.yaml`: Google Cloud Build pipeline supporting Artifact Registry layer caching.
 * `src/requirements.txt`: Dependency lock compiled from `pyproject.toml`.
 * `src/.dockerignore`: Excludes cache files and virtual environments.
@@ -206,6 +218,31 @@ gcloud builds submit . \
   --config=cloudbuild.yaml \
   --substitutions=_PROJECT_ID="YOUR_PROJECT_ID",_REGION="YOUR_REGION",_AR_REPO="YOUR_AR_REPOSITORY",_SERVICE_NAME="saifguard-api",_APP_TYPE="api"
 ```
+
+#### 3. Deploy the Built-in ADK Web UI (adk-web)
+Deploy the built-in [adk-web](https://github.com/google/adk-web) UI to inspect tool calls, execution traces, session histories, and evaluations:
+```bash
+cd src
+gcloud builds submit . \
+  --config=cloudbuild.yaml \
+  --substitutions=_PROJECT_ID="YOUR_PROJECT_ID",_REGION="YOUR_REGION",_AR_REPO="YOUR_AR_REPOSITORY",_SERVICE_NAME="saifguard-adk-ui",_APP_TYPE="adk-web"
+```
+Example for deploying to `saifguard-test`:
+```bash
+cd src
+gcloud builds submit . \
+  --config=cloudbuild.yaml \
+  --project=saifguard-test \
+  --substitutions=_PROJECT_ID="saifguard-test",_REGION="europe-west1",_AR_REPO="saifguard-registry",_SERVICE_NAME="saifguard-adk-ui",_APP_TYPE="adk-web"
+```
+**Accessing the Deployed ADK Web UI on Cloud Run:**
+By default, Cloud Run services require IAM authentication. Standard browsers do not attach GCP Bearer tokens automatically. To securely access the UI:
+- **Using gcloud proxy:**
+  ```bash
+  gcloud run services proxy saifguard-adk-ui --project=YOUR_PROJECT_ID --region=europe-west1
+  ```
+  Then open `http://localhost:8080` in your browser.
+
 
 ### Cross-Project Resource Analysis Setup
 
