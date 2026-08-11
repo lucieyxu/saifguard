@@ -49,6 +49,39 @@ To complete the task, think step by step. Use the tools you have available:
 </RECAP>
 """
 
+GENERATE_CONTENT_CONFIG = types.GenerateContentConfig(
+    safety_settings=[
+        types.SafetySetting(
+            category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+            # Turns off harmful content filter so that exploits don't get blocked when auditing a doc or a project
+            threshold=types.HarmBlockThreshold.OFF,
+        ),
+    ],
+    # For more predictable outputs
+    temperature=0.1,
+)
+
+
+def build_agent(model: str) -> Agent:
+    """Build the SAIFGuard agent.
+
+    Single construction site so the runtime agent and the `adk web` root_agent
+    cannot drift apart.
+    """
+    return Agent(
+        model=model,
+        name="SAIFGuard",
+        description="SAIFGuard helps you secure your apps on GCP.",
+        instruction=AGENT_INSTRUCTION_PROMPT,
+        generate_content_config=GENERATE_CONTENT_CONFIG,
+        tools=[
+            analysis_tool,
+            gcp_project_tool,
+            google_search_tool,
+            publish_dashboard_tool,
+        ],
+    )
+
 
 class SAIFGuardAgent:
     """Main class for SAIFGuard Agent definition using ADK 2"""
@@ -62,18 +95,7 @@ class SAIFGuardAgent:
     def _get_runner(self, model_name: str = None):
         target_model = model_name or self.default_model
         if target_model not in self._runners:
-            agent = Agent(
-                model=target_model,
-                name="SAIFGuard",
-                description="SAIFGuard helps you secure your apps on GCP.",
-                instruction=AGENT_INSTRUCTION_PROMPT,
-                tools=[
-                    analysis_tool,
-                    gcp_project_tool,
-                    google_search_tool,
-                    publish_dashboard_tool,
-                ],
-            )
+            agent = build_agent(target_model)
             runner = Runner(
                 app_name="saifguard_app",
                 agent=agent,
@@ -118,15 +140,4 @@ class SAIFGuardAgent:
                             pass
 
 
-root_agent = Agent(
-    model=MODEL,
-    name="SAIFGuard",
-    description="SAIFGuard helps you secure your apps on GCP.",
-    instruction=AGENT_INSTRUCTION_PROMPT,
-    tools=[
-        analysis_tool,
-        gcp_project_tool,
-        google_search_tool,
-        publish_dashboard_tool,
-    ],
-)
+root_agent = build_agent(MODEL)
