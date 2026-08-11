@@ -101,11 +101,11 @@ AI_SECURITY_ASSET_TYPES = [
     "cloudbilling.googleapis.com/ProjectBillingInfo",
     "bigquery.googleapis.com/Table",
     "bigquery.googleapis.com/Dataset",
-    # --- AI/ML & Agent Platform (Vertex AI, Reasoning Engine / Agent Engine, Model Armor) ---
+    # --- AI/ML & Agent Platform (Agent Platform Runtime / Reasoning Engine) ---
     "aiplatform.googleapis.com/Endpoint",
     "aiplatform.googleapis.com/Model",
     "aiplatform.googleapis.com/ReasoningEngine",
-    "modelarmor.googleapis.com/Template",
+    # Note: Model Armor (FloorSetting & Template) is inspected via REST API in _fetch_model_armor_security()
     # --- Secrets & Encryption (SAIF Controls) ---
     "secretmanager.googleapis.com/Secret",
     "cloudkms.googleapis.com/CryptoKey",
@@ -142,6 +142,50 @@ def _get_cached_saif_recommendations() -> str:
     return result
 
 
+def _fetch_model_armor_security(gcp_project_id: str) -> dict:
+    """Query Model Armor Templates and Floor Settings via direct REST API."""
+    findings = {"templates": [], "floor_settings": []}
+    try:
+        import google.auth
+        from google.auth.transport.requests import AuthorizedSession
+
+        credentials, _ = google.auth.default(
+            scopes=["https://www.googleapis.com/auth/cloud-platform"]
+        )
+        session = AuthorizedSession(credentials)
+        locations = ["global", REGION] if REGION != "global" else ["global"]
+
+        for loc in set(locations):
+            # 1. Inspect Model Armor Templates
+            templates_url = f"https://modelarmor.googleapis.com/v1/projects/{gcp_project_id}/locations/{loc}/templates"
+            try:
+                resp = session.get(templates_url, timeout=5)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    findings["templates"].extend(data.get("templates", []))
+                elif resp.status_code not in (404, 403):
+                    LOGGER.info(f"Model Armor Templates ({loc}) status: {resp.status_code}")
+            except Exception as te:
+                LOGGER.debug(f"Could not fetch Model Armor templates for {loc}: {te}")
+
+            # 2. Inspect Model Armor Floor Settings
+            floor_url = f"https://modelarmor.googleapis.com/v1/projects/{gcp_project_id}/locations/{loc}/floorSettings"
+            try:
+                resp = session.get(floor_url, timeout=5)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    findings["floor_settings"].append(data)
+                elif resp.status_code not in (404, 403):
+                    LOGGER.info(f"Model Armor Floor Settings ({loc}) status: {resp.status_code}")
+            except Exception as fe:
+                LOGGER.debug(f"Could not fetch Model Armor floor settings for {loc}: {fe}")
+
+    except Exception as e:
+        LOGGER.info(f"Model Armor inspection skipped: {e}")
+
+    return findings
+
+
 def gcp_project_tool(gcp_project_id: str) -> str:
     """Audit GCP resources in a target project for SAIF framework security compliance.
 
@@ -170,14 +214,16 @@ def gcp_project_tool(gcp_project_id: str) -> str:
                 resources_list.append(res)
             return resources_list
 
-        with ThreadPoolExecutor(max_workers=2) as executor:
+        with ThreadPoolExecutor(max_workers=3) as executor:
             future_saif = executor.submit(fetch_saif)
             future_assets = executor.submit(fetch_assets)
+            future_model_armor = executor.submit(lambda: _fetch_model_armor_security(gcp_project_id))
 
             saif_recommendations = future_saif.result()
             resources = future_assets.result()
+            model_armor_data = future_model_armor.result()
 
-        LOGGER.info(f"Parallel data fetching (SAIF & Asset Inventory) took {time.time() - start_time:.2f} seconds.")
+        LOGGER.info(f"Parallel data fetching (SAIF, Asset Inventory & Model Armor) took {time.time() - start_time:.2f} seconds.")
         LOGGER.info(f"Asset Inventory found {len(resources)} resources.")
 
         if resources:
@@ -192,6 +238,9 @@ def gcp_project_tool(gcp_project_id: str) -> str:
             types.Part.from_text(text=DISCOVERY_TOOL_QUERY_PROMPT),
             types.Part.from_text(
                 text=f"GCP Asset Inventory export:\n{asset_dump_text}"
+            ),
+            types.Part.from_text(
+                text=f"Model Armor Guardrails & Configuration:\n{json.dumps(model_armor_data, indent=2)}"
             ),
             types.Part.from_text(
                 text=f"LATEST SAIF RECOMMENDATIONS:\n{saif_recommendations}"
