@@ -38,11 +38,32 @@ steps:
       - 'push'
       - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}:latest'
 
-  # 5. Deploy to Cloud Run
+  # 5. Prepare workspace permissions
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'Prepare Workspace Permissions'
+    entrypoint: 'chmod'
+    args: ['777', '/workspace']
+
+  # 6. Ensure Agent Platform Runtime exists or create it, then save its ID
+  - name: '${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}:${_TAG}'
+    id: 'Ensure Agent Platform Runtime'
+    entrypoint: 'python'
+    args:
+      - 'ensure_agent_engine.py'
+      - '${_SERVICE_NAME}-sessions'
+      - '/workspace/agent_engine_id.txt'
+    env:
+      - 'PROJECT_ID=${_PROJECT_ID}'
+      - 'REGION=${_REGION}'
+      - 'GOOGLE_CLOUD_PROJECT=${_PROJECT_ID}'
+      - 'GOOGLE_CLOUD_LOCATION=${_REGION}'
+
+  # 7. Deploy to Cloud Run with AGENT_RUNTIME_ID configured
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'Deploy to Cloud Run'
-    entrypoint: 'gcloud'
+    entrypoint: 'bash'
     args:
+<<<<<<< HEAD
       - 'run'
       - 'deploy'
       - '${_SERVICE_NAME}'
@@ -60,6 +81,22 @@ steps:
       - 'saifguard-sa@${PROJECT_ID}.iam.gserviceaccount.com'
 
 substitutions:
+=======
+      - '-c'
+      - |
+        AGENT_ID=$(cat /workspace/agent_engine_id.txt 2>/dev/null || echo "")
+        echo "Deploying Cloud Run service with AGENT_RUNTIME_ID=$${AGENT_ID}..."
+        gcloud run deploy ${_SERVICE_NAME} \
+          --image ${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}:${_TAG} \
+          --region ${_REGION} \
+          --project ${_PROJECT_ID} \
+          --platform managed \
+          --set-env-vars "APP_TYPE=${_APP_TYPE},PROJECT_ID=${_PROJECT_ID},REGION=${_REGION},VERTEX_LOCATION=${_VERTEX_LOCATION},GOOGLE_CLOUD_PROJECT=${_PROJECT_ID},GOOGLE_CLOUD_LOCATION=${_REGION},DASHBOARD_BQ_PROJECT=${_PROJECT_ID},AGENT_RUNTIME_ID=$${AGENT_ID}" \
+          --service-account saifguard-sa@${_PROJECT_ID}.iam.gserviceaccount.com
+
+substitutions:
+  _PROJECT_ID: 'saifguard-test'
+>>>>>>> 424bb71 (Implement Agent Platform session management)
   _REGION: 'europe-west1'
   _VERTEX_LOCATION: 'global'
   _AR_REPO: 'saifguard-registry'

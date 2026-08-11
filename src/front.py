@@ -1,10 +1,15 @@
 import datetime
+import flask
+import os
+import random
 import time
 import uuid
 from dataclasses import asdict, dataclass
 from typing import Callable, Literal
+from zoneinfo import ZoneInfo
 
 from saifguard.agent import SAIFGuardAgent
+from saifguard.config import TIMEZONE
 
 
 import mesop as me
@@ -27,7 +32,11 @@ agent = SAIFGuardAgent()
 
 
 def _current_timestamp() -> str:
-  return datetime.datetime.now().strftime("%H:%M")
+  try:
+    tz = ZoneInfo(TIMEZONE)
+    return datetime.datetime.now(tz).strftime("%H:%M")
+  except Exception:
+    return datetime.datetime.now().strftime("%H:%M")
 
 
 @dataclass(kw_only=True)
@@ -47,51 +56,108 @@ class ChatMessage:
 
 @me.stateclass
 class State:
-  input: str
+  input: str = ""
   output: list[ChatMessage]
-  in_progress: bool
+  in_progress: bool = False
   sidebar_expanded: bool = False
   selected_model: str = "gemini-3.6-flash"
-  # Identifies this browser session to the agent. Populated on first use by
-  # _session_user_id(); see there for why a shared constant is not safe.
   user_id: str = ""
-  # Need to use dict instead of ChatMessage due to serialization bug.
-  # See: https://github.com/mesop-dev/mesop/issues/659
-  history: list[list[dict]]
+  current_session_id: str = ""
+  sessions: list[dict]
 
 
-def _session_user_id() -> str:
-  """Return this browser session's agent user id, creating it on first use.
+def _extract_user_id(state: State) -> str:
+  """Extract user identity from Google IAP headers, query parameters, or browser session."""
+  # 1. Google Cloud Identity-Aware Proxy (IAP) Headers
+  try:
+    if flask.has_request_context():
+      iap_email = flask.request.headers.get("X-Goog-Authenticated-User-Email")
+      if iap_email:
+        clean_email = iap_email.split(":")[-1].strip().lower()
+        if clean_email:
+          return clean_email
 
-  agent.py derives the ADK session_id from user_id, so a constant here would put
-  every visitor into a single shared conversation and leak one user's audit
-  findings into another's history.
-  """
+      iap_user_id = flask.request.headers.get("X-Goog-Authenticated-User-Id")
+      if iap_user_id:
+        clean_id = iap_user_id.split(":")[-1].strip()
+        if clean_id:
+          return f"iap_{clean_id}"
+  except Exception:
+    pass
+
+  # 2. URL query parameters (e.g. ?user=user@company.com)
+  try:
+    user_param = me.query_params.get("user")
+    if user_param and user_param.strip():
+      return user_param.strip()
+  except Exception:
+    pass
+
+  # 3. Existing state.user_id if already set
+  if state.user_id and state.user_id != "user_default":
+    return state.user_id
+
+  # 4. Fallback: generate a unique ID for this browser profile
+  return f"user_{uuid.uuid4().hex[:8]}"
+
+
+def _refresh_sessions_and_load_latest(state: State):
+  raw_sessions = agent.list_user_sessions(user_id=state.user_id)
+  state.sessions = raw_sessions
+  if state.sessions:
+    state.current_session_id = state.sessions[0]["session_id"]
+    _load_session(state, state.current_session_id)
+  else:
+    state.current_session_id = agent.create_user_session(state.user_id)
+    state.output = []
+
+
+def _load_session(state: State, session_id: str):
+  if not session_id:
+    state.output = []
+    return
+  try:
+    raw_messages = agent.get_session_messages(user_id=state.user_id, session_id=session_id)
+    if raw_messages:
+      state.output = [
+        ChatMessage(
+          role=m.get("role", "user"),
+          content=str(m.get("content", "")),
+          model=str(state.selected_model or "gemini-3.6-flash"),
+          timestamp=str(m.get("timestamp") or _current_timestamp()),
+        )
+        for m in raw_messages
+        if isinstance(m, dict) and m.get("content")
+      ]
+    else:
+      state.output = []
+  except Exception:
+    state.output = []
+
+
+def respond_to_chat(input: str):
   state = me.state(State)
-  if not state.user_id:
-    state.user_id = f"web-{uuid.uuid4().hex[:12]}"
-  return state.user_id
-
-
-def respond_to_chat(input: str, history: list[ChatMessage]):
-  state = me.state(State)
-  agent_input = ""
-  for message in history:
-    agent_input += f"""
-*{message.role}*: {message.content}
-"""
-
   selected_model = getattr(state, "selected_model", None) or "gemini-3.6-flash"
+  if not state.current_session_id:
+    state.current_session_id = f"session_{uuid.uuid4().hex[:10]}"
+
   response = agent.invoke(
-    user_id=_session_user_id(), message=agent_input, model=selected_model
+    user_id=state.user_id,
+    session_id=state.current_session_id,
+    message=input,
+    model=selected_model,
   )
   for line in response:
-    time.sleep(0.3)
+    time.sleep(0.05)
     yield line + " "
 
 
 def on_load(e: me.LoadEvent):
   me.set_theme_mode("system")
+  state = me.state(State)
+  state.user_id = _extract_user_id(state)
+  if not state.current_session_id:
+    _refresh_sessions_and_load_latest(state)
 
 
 @me.page(
@@ -110,12 +176,17 @@ def page():
       background=me.theme_var("surface-container-lowest"),
       display="flex",
       flex_direction="column",
-      height="100%",
+      height="100vh",
+      overflow="hidden",
     )
   ):
     with me.box(
       style=me.Style(
-        display="flex", flex_direction="row", flex_grow=1, overflow="hidden"
+        display="flex",
+        flex_direction="row",
+        flex_grow=1,
+        height="100%",
+        overflow="hidden",
       )
     ):
       with me.box(
@@ -128,8 +199,9 @@ def page():
           if state.sidebar_expanded and _is_mobile()
           else None,
           height="100%" if state.sidebar_expanded and _is_mobile() else None,
-          width=300 if state.sidebar_expanded else None,
+          width=300 if state.sidebar_expanded else 60,
           z_index=2000,
+          overflow_y="auto",
         )
       ):
         sidebar()
@@ -139,18 +211,32 @@ def page():
           display="flex",
           flex_direction="column",
           flex_grow=1,
+          height="100%",
+          overflow="hidden",
           padding=me.Padding(left=60)
           if state.sidebar_expanded and _is_mobile()
           else None,
         )
       ):
-        header()
-        with me.box(style=me.Style(flex_grow=1, overflow_y="scroll")):
+        with me.box(style=me.Style(flex_shrink=0)):
+          header()
+
+        with me.box(
+          style=me.Style(
+            flex_grow=1,
+            height=0,
+            overflow_y="auto",
+            display="flex",
+            flex_direction="column",
+          )
+        ):
           if state.output:
             chat_pane()
           else:
             examples_pane()
-        chat_input()
+
+        with me.box(style=me.Style(flex_shrink=0)):
+          chat_input()
 
 
 def sidebar():
@@ -177,30 +263,66 @@ def sidebar():
       menu_icon(icon="add", tooltip="New chat", on_click=on_click_new_chat)
 
     if state.sidebar_expanded:
-      history_pane()
+      session_list_pane()
 
 
-def history_pane():
+def session_list_pane():
   state = me.state(State)
-  for index, chat in enumerate(state.history):
+  if not state.sessions:
     with me.box(
-      key=f"chat-{index}",
-      on_click=on_click_history,
       style=me.Style(
-        background=me.theme_var("surface-container"),
+        padding=me.Padding.all(15),
+        color=me.theme_var("outline"),
+      )
+    ):
+      me.text("No previous sessions", style=me.Style(font_size=13, font_style="italic"))
+    return
+
+  for session in state.sessions:
+    s_id = session.get("session_id", "")
+    is_active = (s_id == state.current_session_id)
+    title = session.get("title") or f"Session {s_id[:8]}"
+    with me.box(
+      key=f"session-{s_id}",
+      on_click=on_click_session,
+      style=me.Style(
+        background=me.theme_var("surface-container-high")
+        if is_active
+        else me.theme_var("surface-container"),
         border=me.Border.all(
           me.BorderSide(
-            width=1, color=me.theme_var("outline-variant"), style="solid"
+            width=2 if is_active else 1,
+            color=me.theme_var("primary")
+            if is_active
+            else me.theme_var("outline-variant"),
+            style="solid",
           )
         ),
-        border_radius=5,
+        border_radius=8,
         cursor="pointer",
-        margin=me.Margin.symmetric(horizontal=10, vertical=10),
+        margin=me.Margin.symmetric(horizontal=10, vertical=5),
         padding=me.Padding.all(10),
-        text_overflow="ellipsis",
+        display="flex",
+        align_items="center",
+        gap=8,
       ),
     ):
-      me.text(_truncate_text(chat[0]["content"]))
+      me.icon(
+        "chat_bubble_outline",
+        style=me.Style(
+          font_size=18,
+          color=me.theme_var("primary")
+          if is_active
+          else me.theme_var("outline"),
+        ),
+      )
+      me.text(
+        _truncate_text(title, 28),
+        style=me.Style(
+          font_weight="bold" if is_active else "normal",
+          font_size=13,
+        ),
+      )
 
 
 def on_model_selection_change(e: me.SelectSelectionChangeEvent):
@@ -411,13 +533,12 @@ def chat_input():
   state = me.state(State)
   with me.box(
     style=me.Style(
-      background=me.theme_var("surface-container")
-      if _is_mobile()
-      else me.theme_var("surface-container"),
+      background=me.theme_var("surface-container"),
       border_radius=16,
       display="flex",
-      margin=me.Margin.symmetric(horizontal="auto", vertical=15),
-      padding=me.Padding.all(8),
+      align_items="center",
+      margin=me.Margin.symmetric(horizontal="auto", vertical=10),
+      padding=me.Padding(top=4, bottom=4, left=12, right=8),
       width=f"min({_CHAT_MAX_WIDTH}, 90%)",
     )
   ):
@@ -429,23 +550,22 @@ def chat_input():
       me.native_textarea(
         autosize=True,
         key="chat_input",
-        min_rows=4,
+        min_rows=2,
+        max_rows=6,
         on_blur=on_chat_input,
         shortcuts={
           me.Shortcut(shift=True, key="Enter"): on_submit_chat_msg,
         },
         placeholder="Enter your prompt",
         style=me.Style(
-          background=me.theme_var("surface-container")
-          if _is_mobile()
-          else me.theme_var("surface-container"),
+          background=me.theme_var("surface-container"),
           border=me.Border.all(
             me.BorderSide(style="none"),
           ),
           color=me.theme_var("on-surface-variant"),
           outline="none",
           overflow_y="auto",
-          padding=me.Padding(top=16, left=16),
+          padding=me.Padding(top=8, bottom=8, left=4),
           width="100%",
         ),
         value=state.input,
@@ -583,24 +703,21 @@ def on_click_thumb_down(e: me.ClickEvent):
 
 
 def on_click_new_chat(e: me.ClickEvent):
-  """Resets messages."""
+  """Starts a new chat session."""
   state = me.state(State)
-  if state.output:
-    state.history.insert(0, [asdict(messages) for messages in state.output])
+  state.current_session_id = agent.create_user_session(state.user_id)
   state.output = []
   me.focus_component(key="chat_input")
 
 
-def on_click_history(e: me.ClickEvent):
-  """Loads existing chat from history and saves current chat"""
+def on_click_session(e: me.ClickEvent):
+  """Loads existing chat from Agent Platform Sessions."""
   state = me.state(State)
-  _, chat_index = e.key.split("-")
-  chat_messages = [
-    ChatMessage(**chat) for chat in state.history.pop(int(chat_index))
-  ]
-  if state.output:
-    state.history.insert(0, [asdict(messages) for messages in state.output])
-  state.output = chat_messages
+  raw_key = str(getattr(e, "key", "") or "")
+  session_id = raw_key.removeprefix("session-").strip()
+  if session_id:
+    state.current_session_id = session_id
+    _load_session(state, session_id)
   me.focus_component(key="chat_input")
 
 
@@ -639,14 +756,9 @@ def on_click_regenerate(e: me.ClickEvent):
   yield
 
   start_time = time.time()
-  # Send in the old user input and chat history to get the bot response.
-  # We make sure to only pass in the chat history up to this message.
-  output_message = respond_to_chat(
-    user_message.content, state.output[:msg_index]
-  )
+  output_message = respond_to_chat(user_message.content)
   for content in output_message:
     assistant_message.content += content
-    # TODO: 0.25 is an abitrary choice. In the future, consider making this adjustable.
     if (time.time() - start_time) >= 0.25:
       start_time = time.time()
       yield
@@ -673,17 +785,43 @@ def _submit_chat_msg():
   if state.in_progress or not state.input:
     return
 
-  # 1. Add the user's message to the output and clear the input field
+  # Ensure active session ID
+  if not state.current_session_id:
+    state.current_session_id = agent.create_user_session(state.user_id)
+
   user_input = state.input
-  state.output.append(ChatMessage(role="user", content=user_input, timestamp=_current_timestamp()))
+  session_title = _clean_session_title(user_input, 32)
+
+  # Check if session exists in sidebar list, or update title from user's first query
+  found_session = False
+  for s in state.sessions:
+    if s.get("session_id") == state.current_session_id:
+      found_session = True
+      # If current title is generic, update it with user's query summary
+      if s.get("title", "").startswith("Session ") or s.get("title") == "New Chat":
+        s["title"] = session_title
+      break
+
+  if not found_session:
+    new_session_entry = {
+      "session_id": state.current_session_id,
+      "title": session_title,
+      "last_update_time": time.time(),
+    }
+    state.sessions.insert(0, new_session_entry)
+
+  # 1. Add the user's message to the output and clear the input field
+  state.output.append(
+    ChatMessage(role="user", content=user_input, timestamp=_current_timestamp())
+  )
   state.input = ""
   state.in_progress = True
   me.scroll_into_view(key="scroll-to")
   yield
 
   # 2. Get the agent's response generator
-  response_generator = respond_to_chat(user_input, state.output)
-  
+  response_generator = respond_to_chat(user_input)
+
   # This variable will point to the message we are actively streaming the final answer into.
   current_final_message = None
 
@@ -694,22 +832,24 @@ def _submit_chat_msg():
 
     if is_tool_response:
       # If this is a tool response, add it as a new, complete message.
-      # The UI will hide this message, but it will be in the history.
       state.output.append(ChatMessage(role="bot", content=chunk.strip()))
-      current_final_message = None # Reset, so the next text chunk starts a new message.
+      current_final_message = None
       yield
     else:
       # This is a chunk of the final, visible agent answer.
       if current_final_message is None:
-        # This is the *first* chunk. Create a new message for it.
-        new_message = ChatMessage(role="bot", content=chunk, model=selected_model, timestamp=_current_timestamp())
+        new_message = ChatMessage(
+          role="bot",
+          content=chunk,
+          model=selected_model,
+          timestamp=_current_timestamp(),
+        )
         state.output.append(new_message)
         current_final_message = new_message
       else:
-        # This is a subsequent chunk, so append it to the message we're building.
         current_final_message.content += chunk
       yield
-  
+
   state.in_progress = False
   me.focus_component(key="chat_input")
   yield
@@ -724,7 +864,27 @@ def _is_mobile():
 
 def _truncate_text(text, char_limit=100):
   """Truncates text that is too long."""
-  if len(text) <= char_limit:
-    return text
-  truncated_text = text[:char_limit].rsplit(" ", 1)[0]
+  if not text:
+    return ""
+  text_str = str(text)
+  if len(text_str) <= char_limit:
+    return text_str
+  truncated_text = text_str[:char_limit].rsplit(" ", 1)[0]
   return truncated_text.rstrip(".,!?;:") + "..."
+
+
+def _clean_session_title(text: str, char_limit: int = 32) -> str:
+  """Generates a clean human-readable title from the first user query."""
+  if not text:
+    return "New chat"
+  # Take first non-empty line
+  lines = [line.strip() for line in str(text).splitlines() if line.strip()]
+  if not lines:
+    return "New chat"
+  first_line = lines[0]
+  # Strip leading prompt/markdown characters
+  clean = first_line.lstrip("#* `>-").strip()
+  if len(clean) <= char_limit:
+    return clean
+  truncated = clean[:char_limit].rsplit(" ", 1)[0]
+  return truncated.rstrip(".,!?;:-") + "..."
