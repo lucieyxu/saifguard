@@ -1,6 +1,6 @@
 import datetime
-import random
 import time
+import uuid
 from dataclasses import asdict, dataclass
 from typing import Callable, Literal
 
@@ -52,9 +52,25 @@ class State:
   in_progress: bool
   sidebar_expanded: bool = False
   selected_model: str = "gemini-3.6-flash"
+  # Identifies this browser session to the agent. Populated on first use by
+  # _session_user_id(); see there for why a shared constant is not safe.
+  user_id: str = ""
   # Need to use dict instead of ChatMessage due to serialization bug.
   # See: https://github.com/mesop-dev/mesop/issues/659
   history: list[list[dict]]
+
+
+def _session_user_id() -> str:
+  """Return this browser session's agent user id, creating it on first use.
+
+  agent.py derives the ADK session_id from user_id, so a constant here would put
+  every visitor into a single shared conversation and leak one user's audit
+  findings into another's history.
+  """
+  state = me.state(State)
+  if not state.user_id:
+    state.user_id = f"web-{uuid.uuid4().hex[:12]}"
+  return state.user_id
 
 
 def respond_to_chat(input: str, history: list[ChatMessage]):
@@ -66,7 +82,9 @@ def respond_to_chat(input: str, history: list[ChatMessage]):
 """
 
   selected_model = getattr(state, "selected_model", None) or "gemini-3.6-flash"
-  response = agent.invoke(user_id="test", message=agent_input, model=selected_model)
+  response = agent.invoke(
+    user_id=_session_user_id(), message=agent_input, model=selected_model
+  )
   for line in response:
     time.sleep(0.3)
     yield line + " "

@@ -13,10 +13,7 @@ from google.genai import types
 from google.protobuf import field_mask_pb2
 from google.protobuf.json_format import MessageToJson
 
-from models.vulnerability import VulnerabilityList
 from saifguard.config import (
-    DASHBOARD_BQ_LOCATION,
-    DASHBOARD_BQ_PROJECT,
     DEBUG_MODE,
     GENERATE_DASHBOARD,
     GOOGLE_SEARCH_SAIF_PROMPT,

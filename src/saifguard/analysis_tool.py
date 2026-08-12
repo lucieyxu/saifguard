@@ -4,51 +4,23 @@ import traceback
 from google.cloud import storage
 from google import genai
 from google.genai import types
-from saifguard.config import MODEL, PROJECT_ID, REGION, VERTEX_LOCATION, GOOGLE_SEARCH_SAIF_PROMPT
+from saifguard.config import MODEL, PROJECT_ID, VERTEX_LOCATION, GOOGLE_SEARCH_SAIF_PROMPT
 from saifguard.google_search_tool import google_search_tool
+from saifguard.skill_loader import load_skill_instructions
 
 LOGGER = logging.getLogger(__name__)
 
 
-DISCOVERY_TOOL_SYSTEM_PROMPT = """
+_FALLBACK_DISCOVERY_PROMPT = """
 <OBJECTIVE_AND_PERSONA>
-You are an expert Application Security (AppSec) engineer. 
-Your task is to perform a thorough security audit on documents and generate a detailed report of your findings.
+You are a Principal Security Architect specializing in AI/ML Systems.
+Your task is to perform a thorough security audit on the provided design documents and generate a detailed report of your findings.
 </OBJECTIVE_AND_PERSONA>
+"""
 
-<INSTRUCTIONS>
-When answering, adhere to the following guildelines:
-**Accuracy:** Ensure your answers are factually correct and grounded in the documents provided as a list of uris.
-**Detail:** Provide comprehensive and informative answers, elaborating on key concepts and providing context. Be detailed and return an exhaustive answer.
-**Language:** Strictly identify the language of ther user query and always repond in the same language regardless of the document language.
-</INSTRUCTIONS>
-
-<OUTPUT>
-Generate your final report in Markdown. For each vulnerability you discover, provide the following details. You must order the findings by severity, from Critical to Medium.
-
-### 🔴 Critical
-- **Vulnerability:** 
-- **Location:** 
-- **Description:** 
-- **Remediation:**
-
-### 🟠 High
-- **Vulnerability:**
-- **Location:**
-- **Description:**
-- **Remediation:**
-
-### 🟡 Medium
-- **Vulnerability:**
-- **Location:**
-- **Description:**
-- **Remediation:**
-</OUTPUT>
-
-
-<RECAP>
-* Do not attempt to answer questions without documents, always ground them in the documents and Latest SAIF recommendations.
-</RECAP>"""
+DISCOVERY_TOOL_SYSTEM_PROMPT = load_skill_instructions(
+    "design_file_audit", _FALLBACK_DISCOVERY_PROMPT
+)
 
 DISCOVERY_TOOL_QUERY_PROMPT = """
 Inspect the files provided as a GCS bucket URI and generate detailed recommendations to improve the overall security posture.

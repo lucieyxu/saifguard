@@ -44,7 +44,7 @@ Think step by step:
     *   **Description:** The external HTTP(S) Load Balancer's backend service (`[BACKEND SERVICE NAME]`) does not have a Cloud Armor security policy attached
     *   **Remediation:** Attach a Cloud Armor security policy
 
-### 🔴 Medium
+### 🟡 Medium
 
 * Disabled Backups for Cloud SQL Instance
     *   **Location:** `//cloudsql.googleapis.com/projects/[PROJECT_ID]/instances/[CLOUD SQL INSTANCE NAME]`
