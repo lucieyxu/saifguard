@@ -6,6 +6,7 @@ from google import genai
 from google.genai import types
 from saifguard.config import MODEL, PROJECT_ID, VERTEX_LOCATION, GOOGLE_SEARCH_SAIF_PROMPT
 from saifguard.google_search_tool import google_search_tool
+from saifguard.progress import emit_progress
 from saifguard.skill_loader import load_skill_instructions
 
 LOGGER = logging.getLogger(__name__)
@@ -40,6 +41,7 @@ def analysis_tool(gcs_uri: str):
     """
     try:
         LOGGER.info(f"Calling analysis_tool with {gcs_uri}")
+        emit_progress(f"📂 [1/2] Fetching SAIF recommendations & reading design documents from `{gcs_uri}`...")
 
         # Get latest SAIF recommendations from Google Search
         LOGGER.info("Fetching latest SAIF recommendations using Google Search.")
@@ -52,11 +54,12 @@ def analysis_tool(gcs_uri: str):
         bucket_name = gcs_uri.replace("gs://", "").strip("/")
         bucket = storage_client.bucket(bucket_name)        
         LOGGER.info(f"Listing files in bucket '{bucket_name}'.")
-        blobs = bucket.list_blobs()
+        blobs = list(bucket.list_blobs())
 
         # Construct the prompt with documents and their names
         contents.append(types.Part.from_text(text=DISCOVERY_TOOL_QUERY_PROMPT))
 
+        file_count = 0
         for blob in blobs:
             file_uri = f"gs://{bucket_name}/{blob.name}"
             file_name = blob.name
@@ -65,8 +68,11 @@ def analysis_tool(gcs_uri: str):
             # Provide the file name as context for the LLM
             contents.append(types.Part.from_text(text=f"\nDocument name: {file_name}"))
             contents.append(types.Part.from_uri(file_uri=file_uri, mime_type=None))
+            file_count += 1
 
         contents.append(types.Part.from_text(text=f"LATEST SAIF RECOMMENDATIONS:\n{saif_recommendations}"))
+
+        emit_progress(f"🧠 [2/2] Auditing {file_count} design document(s) against SAIF framework with Gemini...")
 
         client = genai.Client(
             vertexai=True,

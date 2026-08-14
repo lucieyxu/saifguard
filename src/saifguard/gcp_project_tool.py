@@ -24,6 +24,7 @@ from saifguard.config import (
 )
 from saifguard.dashboard_tool import publish_dashboard_async
 from saifguard.google_search_tool import google_search_tool
+from saifguard.progress import emit_progress
 from saifguard.skill_loader import load_skill_instructions
 
 LOGGER = logging.getLogger(__name__)
@@ -193,6 +194,8 @@ def gcp_project_tool(gcp_project_id: str) -> str:
     start_time = time.time()
     asset_client = _get_asset_client()
 
+    emit_progress(f"🔍 [1/3] Getting SAIF recommendations & scanning GCP resources for `{gcp_project_id}`...")
+
     try:
         def fetch_saif():
             return _get_cached_saif_recommendations()
@@ -223,6 +226,9 @@ def gcp_project_tool(gcp_project_id: str) -> str:
         LOGGER.info(f"Parallel data fetching (SAIF, Asset Inventory & Model Armor) took {time.time() - start_time:.2f} seconds.")
         LOGGER.info(f"Asset Inventory found {len(resources)} resources.")
 
+        emit_progress(f"📊 [2/3] Retrieved SAIF guidelines & {len(resources)} GCP resources.")
+        emit_progress(f"🧠 [3/3] Inspecting resources & generating recommendations...")
+
         if resources:
             resources_as_dicts = [
                 json.loads(MessageToJson(res._pb)) for res in resources
@@ -250,7 +256,7 @@ def gcp_project_tool(gcp_project_id: str) -> str:
             with open("saif_recommendations.txt", "w") as f:
                 f.write(saif_recommendations)
 
-        start_time = time.time()
+        gen_start_time = time.time()
         client = _get_genai_client()
         response = client.models.generate_content(
             model=MODEL,
@@ -260,11 +266,11 @@ def gcp_project_tool(gcp_project_id: str) -> str:
                 temperature=0.1,
             ),
         )
-        LOGGER.info(f"Generating security report took {time.time() - start_time:.2f} seconds.")
+        LOGGER.info(f"Generating security report took {time.time() - gen_start_time:.2f} seconds.")
         LOGGER.info("Successfully received response from the model.")
 
         if GENERATE_DASHBOARD:
-            LOGGER.info("Publishing findings to BigQuery dashboard in background thread...")
+            emit_progress("📈 Publishing findings to Data Studio BigQuery dashboard...")
             publish_dashboard_async(response.text, gcp_project_id)
 
         return response.text

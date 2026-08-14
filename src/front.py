@@ -749,6 +749,12 @@ def on_chat_input(e: me.InputBlurEvent):
   state.input = e.value
 
 
+def _format_progress_card(progress_steps: list[str]) -> str:
+  formatted_steps = [f"> * {s}" for s in progress_steps]
+  steps_md = "\n>\n".join(formatted_steps)
+  return f"**Security Audit in Progress...**\n>\n{steps_md}"
+
+
 def on_click_regenerate(e: me.ClickEvent):
   """Regenerates response from an existing message"""
   state = me.state(State)
@@ -767,11 +773,29 @@ def on_click_regenerate(e: me.ClickEvent):
 
   start_time = time.time()
   output_message = respond_to_chat(user_message.content)
+  progress_steps: list[str] = []
+
   for content in output_message:
-    assistant_message.content += content
-    if (time.time() - start_time) >= 0.25:
-      start_time = time.time()
+    is_tool_response = content.strip().startswith("*tool*:")
+    is_progress_message = content.strip().startswith("*progress*:")
+
+    if is_tool_response:
+      continue
+    elif is_progress_message:
+      progress_text = content.strip().removeprefix("*progress*:").strip()
+      if progress_text and progress_text not in progress_steps:
+        progress_steps.append(progress_text)
+      assistant_message.content = _format_progress_card(progress_steps)
       yield
+    else:
+      if assistant_message.content.startswith("> 🔄 **Security Audit in Progress..."):
+        assistant_message.content = content
+      else:
+        assistant_message.content += content
+
+      if (time.time() - start_time) >= 0.15:
+        start_time = time.time()
+        yield
 
   state.in_progress = False
   me.focus_component(key="chat_input")
@@ -835,6 +859,7 @@ def _submit_chat_msg():
 
   # This variable will point to the message we are actively streaming the final answer into.
   current_final_message = None
+  progress_steps: list[str] = []
 
   selected_model = getattr(state, "selected_model", "") or "gemini-3.6-flash"
 
@@ -844,11 +869,29 @@ def _submit_chat_msg():
       break
 
     is_tool_response = chunk.strip().startswith("*tool*:")
+    is_progress_message = chunk.strip().startswith("*progress*:")
 
     if is_tool_response:
       # If this is a tool response, add it as a new, complete message.
       state.output.append(ChatMessage(role="bot", content=chunk.strip()))
       current_final_message = None
+      yield
+    elif is_progress_message:
+      progress_text = chunk.strip().removeprefix("*progress*:").strip()
+      if progress_text and progress_text not in progress_steps:
+        progress_steps.append(progress_text)
+      progress_card = _format_progress_card(progress_steps)
+      if current_final_message is None:
+        new_message = ChatMessage(
+          role="bot",
+          content=progress_card,
+          model=selected_model,
+          timestamp=_current_timestamp(),
+        )
+        state.output.append(new_message)
+        current_final_message = new_message
+      else:
+        current_final_message.content = progress_card
       yield
     else:
       # This is a chunk of the final, visible agent answer.
@@ -862,7 +905,10 @@ def _submit_chat_msg():
         state.output.append(new_message)
         current_final_message = new_message
       else:
-        current_final_message.content += chunk
+        if current_final_message.content.startswith("> 🔄 **Security Audit in Progress..."):
+          current_final_message.content = chunk
+        else:
+          current_final_message.content += chunk
       yield
 
   state.in_progress = False

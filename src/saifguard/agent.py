@@ -132,10 +132,10 @@ class SAIFGuardAgent:
         )
 
         q = queue.Queue()
-        set_progress_queue(q)
+        set_progress_queue(q, session_id=effective_session_id)
 
         def worker():
-            set_progress_queue(q)
+            set_progress_queue(q, session_id=effective_session_id)
             runner = self._get_runner(target_model)
             try:
                 for event in runner.run(
@@ -147,7 +147,7 @@ class SAIFGuardAgent:
                 q.put(("ERROR", str(e)))
             finally:
                 q.put(("DONE", None))
-                set_progress_queue(None)
+                set_progress_queue(None, session_id=effective_session_id)
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -178,13 +178,13 @@ class SAIFGuardAgent:
                             elif hasattr(part, "function_call") and part.function_call:
                                 tool_name = getattr(part.function_call, "name", "")
                                 if tool_name == "google_search_tool":
-                                    yield "\n\n*🔄 Searching Google SAIF Guidelines...*\n\n"
+                                    yield "*progress*: 🌐 Searching latest SAIF guidelines on saif.google..."
                                 elif tool_name == "publish_dashboard_tool":
-                                    yield "\n\n*🔄 Publishing Findings to BigQuery Dashboard...*\n\n"
+                                    yield "*progress*: 📊 Publishing findings to Data Studio BigQuery dashboard..."
                                 elif tool_name in ("gcp_project_tool", "analysis_tool"):
                                     pass  # Progress is emitted step-by-step inside the tool implementation
                                 elif tool_name:
-                                    yield f"\n\n*🔄 Executing tool {tool_name}...*\n\n"
+                                    yield f"*progress*: 🔄 Executing tool `{tool_name}`..."
                             elif (
                                 hasattr(part, "function_response")
                                 and part.function_response
