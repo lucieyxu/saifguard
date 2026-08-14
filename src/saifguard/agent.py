@@ -68,8 +68,7 @@ GENERATE_CONTENT_CONFIG = types.GenerateContentConfig(
 def build_agent(model: str) -> Agent:
     """Build the SAIFGuard agent.
 
-    Single construction site so the runtime agent and the `adk web` root_agent
-    cannot drift apart.
+    Centralize the configuration to avoid drift from the runtime agent and the `adk web` root_agent
     """
     return Agent(
         model=model,
