@@ -1,14 +1,21 @@
-# Stage 1: Build dependencies
+# Stage 1: Build dependencies with uv
 FROM python:3.11-slim-bookworm AS builder
+
+# Install uv binary from official Astral image
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 
 WORKDIR /app
 
-
-RUN python -m venv /opt/venv
+ENV VIRTUAL_ENV=/opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
+ENV UV_COMPILE_BYTECODE=1
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy dependency specifications
+COPY pyproject.toml poetry.lock ./
+
+# Create virtual environment and install dependencies using uv
+RUN uv venv /opt/venv && \
+    uv pip install -r pyproject.toml
 
 # Stage 2: Final runtime image
 FROM python:3.11-slim-bookworm

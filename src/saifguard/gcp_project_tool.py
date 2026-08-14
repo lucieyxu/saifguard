@@ -1,23 +1,20 @@
+import functools
 import json
 import logging
-import traceback
+import os
+import tempfile
 import time
-from textwrap import dedent
-from typing import List
+import traceback
+from concurrent.futures import ThreadPoolExecutor
 
-import pandas as pd
-from opentelemetry import trace
 from google import genai
 from google.cloud import asset_v1
 from google.genai import types
 from google.protobuf import field_mask_pb2
 from google.protobuf.json_format import MessageToJson
-from models.vulnerability import VulnerabilityList
 
-# Assuming saifguard.config exists and contains these variables
 from saifguard.config import (
-    DASHBOARD_BQ_LOCATION,
-    DASHBOARD_BQ_PROJECT,
+    DEBUG_MODE,
     GENERATE_DASHBOARD,
     GOOGLE_SEARCH_SAIF_PROMPT,
     MODEL,
@@ -25,151 +22,211 @@ from saifguard.config import (
     REGION,
     VERTEX_LOCATION,
 )
+from saifguard.dashboard_tool import publish_dashboard_async
 from saifguard.google_search_tool import google_search_tool
+from saifguard.skill_loader import load_skill_instructions
 
 LOGGER = logging.getLogger(__name__)
 
+_ASSET_CLIENT = None
+_GENAI_CLIENT = None
 
-DISCOVERY_TOOL_SYSTEM_PROMPT = """
+
+def _get_asset_client():
+    global _ASSET_CLIENT
+    if _ASSET_CLIENT is None:
+        _ASSET_CLIENT = asset_v1.AssetServiceClient()
+    return _ASSET_CLIENT
+
+
+def _get_genai_client():
+    global _GENAI_CLIENT
+    if _GENAI_CLIENT is None:
+        _GENAI_CLIENT = genai.Client(
+            vertexai=True,
+            project=PROJECT_ID,
+            location=VERTEX_LOCATION,
+        )
+    return _GENAI_CLIENT
+
+
+_FALLBACK_DISCOVERY_PROMPT = """
 <OBJECTIVE_AND_PERSONA>
 You are an expert Application Security (AppSec) engineer. 
-Your task is to perform a thorough security audit on this application's deployment using the provided GCP resources of this project ID
-and generate a detailed report of your findings.
+Your task is to perform a thorough security audit on this application's deployment using the provided GCP resources.
 </OBJECTIVE_AND_PERSONA>
-
-<INSTRUCTIONS>
-To complete the task, think step by step and print out the thinking process:
-Go through the GCP project's resources provided in context via "GCP Asset Inventory export". For each resource:
-1. Compare it to the SAIF framework to identify security risks and recommendations. 
-2. Look specifically for patterns indicating common vulnerabilities based on the OWASP Top 10. Pay close attention to:
-    -   **DDoS vulnerability:** Lack of Web Application Firewall (WAF) such as Cloud Armor not configured on External Load Balancers. Each GCP backend service MUST HAVE a security policy defined.
-    -   **Injection Flaws:** SQL, NoSQL, or command injection where user input is concatenated into queries or commands without proper sanitization or parameterization.
-    -   **Hardcoded Secrets:** API keys, passwords, private tokens, or other sensitive credentials committed directly into the source code. Use the `grep` results below as a starting point.
-    -   **XSS (Cross-Site Scripting):** Locations where unsanitized user input is rendered directly into HTML templates.
-    -   **Insecure Deserialization:** Use of unsafe deserialization methods on untrusted data.
-    -   **Security Misconfiguration:** Overly permissive CORS headers (`*`), default credentials, or debug features enabled in production-like configurations.
-    -   **Sensitive Data Exposure:** Lack of proper encryption for sensitive data at rest or in transit.
-Output the resources that contain a security issue with regards to the SAIF framework.
-</INSTRUCTIONS>
-
-<EXAMPLE>
-This is an example of a critical security issue:
-
-### 🔴 Critical
-- **Vulnerability:** Hardcoded AWS Secret Access Key
-- **Location:** `[File Path]:[Line Number]`
-- **Description:** The secret access key is hardcoded in a script
-- **Remediation:** Move the secret to an environment variable and access it via `process.env.AWS_SECRET_KEY`."
-</EXAMPLE>
-
-<OUTPUT>
-Generate your final report in Markdown. For each vulnerability you discover, provide the following details. You must order the findings by severity, from Critical to Medium.
-
-### 🔴 Critical
-- **Vulnerability:** 
-- **Location:** 
-- **Description:** 
-- **Remediation:**
-
-### 🟠 High
-- **Vulnerability:**
-- **Location:**
-- **Description:**
-- **Remediation:**
-
-### 🟡 Medium
-- **Vulnerability:**
-- **Location:**
-- **Description:**
-- **Remediation:**
-</OUTPUT>
-
-
-<RECAP>
-* Do not attempt to answer questions without the GCP resources found, always ground them in the GCP Asset Inventory export and Latest SAIF recommendations.
-</RECAP>
 """
+
+DISCOVERY_TOOL_SYSTEM_PROMPT = load_skill_instructions(
+    "gcp_security_audit", _FALLBACK_DISCOVERY_PROMPT
+)
 
 DISCOVERY_TOOL_QUERY_PROMPT = "Inspect the GCP project assets provided and generate detailed recommendations to improve the overall security posture. Use the provided Google Search results for the latest SAIF compliance recommendations as a reference."
 
-
-DASHBOARD_SYSTEM_PROMPT = """
-<OBJECTIVE>
-A list of vulnerability descriptions from a GCP project is given to you as text. 
-You need to transform it into a dataframe to pass to BigQuery for dashboarding.
-You need to extract the google cloud console URL for each vulnerable resources to allow the user to click on it.
-</OBJECTIVE>
-
-<INSTRUCTIONS>
-Think step by step:
-1. Identify the vulnerable GCP resources.
-2. For each resource, extract the location given as a the name from asset inventory command and produce the GCP console URL. Extract the vulnerability name, description and remediation.
-</INSTRUCTIONS>
-
-<FEW_SHOT_EXAMPLES>
-# Example 1
-## Input
-**Vulnerabilities:** 
-\n\n### 🔴 Critical\n\n* Lack of Web Application Firewall (WAF) / DDoS Protection on External Load Balancer\n    *   **Location:** `//compute.googleapis.com/projects/[PROJECT_ID]/global/backendServices/[BACKEND SERVICE NAME]`\n    *   **Description:** The external HTTP(S) Load Balancer\'s backend service (`[BACKEND SERVICE NAME]`) does not have a Cloud Armor security policy attached    *   **Remediation:** Attach a Cloud Armor security policy
-\n\n### 🔴 Medium\n\n* Disabled Backups for Cloud SQL Instance\n    *   **Location:** `//cloudsql.googleapis.com/projects/[PROJECT_ID]/instances/[CLOUD SQL INSTANCE NAME]`\n    *   **Description:** The Cloud SQL instance `[CLOUD SQL INSTANCE NAME]` has automated backups disabled *   **Remediation:** Enable automated backups
-
-##Thoughts
-1. There are 2 vulnerabilities listed, the first on the external load balancer backend service, the second on Cloud SQL instance
-2. //compute.googleapis.com/projects/[PROJECT_ID]/global/backendServices/[BACKEND SERVICE NAME] is mapped to the console URL https://console.cloud.google.com/net-services/loadbalancing/backends/details/backendService/[BACKEND SERVICE NAME]?project=[PROJECT_ID]
-//cloudsql.googleapis.com/projects/[PROJECT_ID]/instances/[CLOUD SQL INSTANCE NAME] is mapped to the console URL https://console.cloud.google.com/sql/instances/[CLOUD SQL INSTANCE NAME]/overview?project=[PROJECT_ID]
-
-## Output
-[
-    {
-        severity: "Critical"
-        category: "Load Balancer"
-        name: "Lack of Web Application Firewall (WAF) / DDoS Protection on External Load Balancer"
-        description: "The external HTTP(S) Load Balancer\'s backend service (`[BACKEND SERVICE NAME]`) does not have a Cloud Armor security policy attached"
-        remediation: "Attach a Cloud Armor security policy"
-        url: "https://console.cloud.google.com/net-services/loadbalancing/backends/details/backendService/[BACKEND SERVICE NAME]?project=[PROJECT_ID]"
-    },
-    {
-        severity: "Medium"
-        category: "Cloud SQL"
-        name: "Disabled Backups for Cloud SQL Instance"
-        description: "The Cloud SQL instance `[CLOUD SQL INSTANCE NAME]` has automated backups disabled"
-        remediation: "Enable automated backups"
-        url: "https://console.cloud.google.com/sql/instances/[CLOUD SQL INSTANCE NAME]/overview?project=[PROJECT_ID]"
-    }
+AI_SECURITY_ASSET_TYPES = [
+    # --- Core GCP Infrastructure & Security ---
+    "iam.googleapis.com/ServiceAccountKey",
+    "iam.googleapis.com/ServiceAccount",
+    "compute.googleapis.com/Route",
+    "storage.googleapis.com/Bucket",
+    "dns.googleapis.com/ResourceRecordSet",
+    "dataplex.googleapis.com/EntryGroup",
+    "compute.googleapis.com/ForwardingRule",
+    "compute.googleapis.com/Address",
+    "logging.googleapis.com/LogSink",
+    "logging.googleapis.com/LogBucket",
+    "compute.googleapis.com/UrlMap",
+    "compute.googleapis.com/Subnetwork",
+    "sqladmin.googleapis.com/Instance",
+    "servicedirectory.googleapis.com/Service",
+    "servicedirectory.googleapis.com/Namespace",
+    "servicedirectory.googleapis.com/Endpoint",
+    "run.googleapis.com/Service",
+    "run.googleapis.com/Revision",
+    "run.googleapis.com/Job",
+    "dns.googleapis.com/ResponsePolicy",
+    "dns.googleapis.com/ManagedZone",
+    "compute.googleapis.com/TargetHttpsProxy",
+    "compute.googleapis.com/TargetHttpProxy",
+    "compute.googleapis.com/SslCertificate",
+    "compute.googleapis.com/SecurityPolicy",
+    "compute.googleapis.com/Project",
+    "compute.googleapis.com/NetworkEndpointGroup",
+    "compute.googleapis.com/Network",
+    "compute.googleapis.com/BackendService",
+    "cloudresourcemanager.googleapis.com/Project",
+    "cloudbilling.googleapis.com/ProjectBillingInfo",
+    "bigquery.googleapis.com/Table",
+    "bigquery.googleapis.com/Dataset",
+    # --- AI/ML & Agent Platform (Agent Platform Runtime / Reasoning Engine) ---
+    "aiplatform.googleapis.com/Endpoint",
+    "aiplatform.googleapis.com/Model",
+    "aiplatform.googleapis.com/ReasoningEngine",
+    # Note: Model Armor (FloorSetting & Template) is inspected via REST API in _fetch_model_armor_security()
+    # --- Secrets & Encryption (SAIF Controls) ---
+    "secretmanager.googleapis.com/Secret",
+    "cloudkms.googleapis.com/CryptoKey",
+    # --- API Gateways exposing AI endpoints ---
+    "apigateway.googleapis.com/Gateway",
 ]
-</FEW_SHOT_EXAMPLES>
 
 
-<RECAP>
-* Keep the vulnerability name, description and remeidation as is, do not change the text
-* Convert the location into a GCP console URL
-</RECAP>
-"""
+@functools.lru_cache(maxsize=1)
+def _get_cached_saif_recommendations() -> str:
+    """Retrieve SAIF framework recommendations with in-memory and disk caching."""
+    cache_file = os.path.join(tempfile.gettempdir(), "saif_recommendations_cache.txt")
+    if os.path.exists(cache_file):
+        try:
+            if time.time() - os.path.getmtime(cache_file) < 86400:
+                with open(cache_file, "r", encoding="utf-8") as f:
+                    content = f.read()
+                if content and "An exception occurred" not in content:
+                    LOGGER.info("Loaded SAIF recommendations from disk cache.")
+                    return content
+        except Exception as e:
+            LOGGER.warning(f"Could not read SAIF recommendations disk cache: {e}")
+
+    result = google_search_tool(GOOGLE_SEARCH_SAIF_PROMPT)
+
+    if result and "An exception occurred" not in str(result):
+        try:
+            with open(cache_file, "w", encoding="utf-8") as f:
+                f.write(result)
+            LOGGER.info(f"Saved SAIF recommendations to disk cache: {cache_file}")
+        except Exception as e:
+            LOGGER.warning(f"Could not write SAIF recommendations disk cache: {e}")
+
+    return result
 
 
-def gcp_project_tool(gcp_project_id: str):
-    """Analyze a GCP project referenced by a GCP project ID.
+def _fetch_model_armor_security(gcp_project_id: str) -> dict:
+    """Query Model Armor Templates and Floor Settings via direct REST API."""
+    findings = {"templates": [], "floor_settings": []}
+    try:
+        import google.auth
+        from google.auth.transport.requests import AuthorizedSession
+
+        credentials, _ = google.auth.default(
+            scopes=["https://www.googleapis.com/auth/cloud-platform"]
+        )
+        session = AuthorizedSession(credentials)
+        locations = ["global", REGION] if REGION != "global" else ["global"]
+
+        for loc in set(locations):
+            # 1. Inspect Model Armor Templates
+            templates_url = f"https://modelarmor.googleapis.com/v1/projects/{gcp_project_id}/locations/{loc}/templates"
+            try:
+                resp = session.get(templates_url, timeout=5)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    findings["templates"].extend(data.get("templates", []))
+                elif resp.status_code not in (404, 403):
+                    LOGGER.info(f"Model Armor Templates ({loc}) status: {resp.status_code}")
+            except Exception as te:
+                LOGGER.debug(f"Could not fetch Model Armor templates for {loc}: {te}")
+
+            # 2. Inspect Model Armor Floor Settings
+            floor_url = f"https://modelarmor.googleapis.com/v1/projects/{gcp_project_id}/locations/{loc}/floorSettings"
+            try:
+                resp = session.get(floor_url, timeout=5)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    findings["floor_settings"].append(data)
+                elif resp.status_code not in (404, 403):
+                    LOGGER.info(f"Model Armor Floor Settings ({loc}) status: {resp.status_code}")
+            except Exception as fe:
+                LOGGER.debug(f"Could not fetch Model Armor floor settings for {loc}: {fe}")
+
+    except Exception as e:
+        LOGGER.info(f"Model Armor inspection skipped: {e}")
+
+    return findings
+
+
+def gcp_project_tool(gcp_project_id: str) -> str:
+    """Audit GCP resources in a target project for SAIF framework security compliance.
 
     Args:
-        gcp_project_id (str): GCP project ID
+        gcp_project_id: The target GCP Project ID to scan.
     """
+    LOGGER.info(f"Starting GCP Project Security Audit for project: {gcp_project_id}")
+    start_time = time.time()
+    asset_client = _get_asset_client()
+
     try:
-        LOGGER.info(f"Calling GCP project tool with project: {gcp_project_id}")
+        def fetch_saif():
+            return _get_cached_saif_recommendations()
 
-        LOGGER.info("Fetching latest SAIF recommendations using Google Search.")
-        start_time = time.time()
-        saif_recommendations = google_search_tool(GOOGLE_SEARCH_SAIF_PROMPT)
-        LOGGER.info(f"Fetching SAIF recommendations took {time.time() - start_time:.2f} seconds.")
+        def fetch_assets():
+            resources_list = []
+            read_mask = field_mask_pb2.FieldMask(paths=["*"])
+            results = asset_client.search_all_resources(
+                request=asset_v1.SearchAllResourcesRequest(
+                    scope=f"projects/{gcp_project_id}",
+                    asset_types=AI_SECURITY_ASSET_TYPES,
+                    read_mask=read_mask,
+                )
+            )
+            for res in results:
+                resources_list.append(res)
+            return resources_list
 
-        resources = _get_asset_inventory_resources(gcp_project_id)
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            future_saif = executor.submit(fetch_saif)
+            future_assets = executor.submit(fetch_assets)
+            future_model_armor = executor.submit(lambda: _fetch_model_armor_security(gcp_project_id))
+
+            saif_recommendations = future_saif.result()
+            resources = future_assets.result()
+            model_armor_data = future_model_armor.result()
+
+        LOGGER.info(f"Parallel data fetching (SAIF, Asset Inventory & Model Armor) took {time.time() - start_time:.2f} seconds.")
         LOGGER.info(f"Asset Inventory found {len(resources)} resources.")
 
         if resources:
-            # Convert each protobuf resource object to a dictionary
             resources_as_dicts = [
                 json.loads(MessageToJson(res._pb)) for res in resources
             ]
-            # Dump the list of dictionaries into a single, formatted JSON string
             asset_dump_text = json.dumps(resources_as_dicts, indent=2)
         else:
             asset_dump_text = "No resources were found in the project."
@@ -180,22 +237,21 @@ def gcp_project_tool(gcp_project_id: str):
                 text=f"GCP Asset Inventory export:\n{asset_dump_text}"
             ),
             types.Part.from_text(
+                text=f"Model Armor Guardrails & Configuration:\n{json.dumps(model_armor_data, indent=2)}"
+            ),
+            types.Part.from_text(
                 text=f"LATEST SAIF RECOMMENDATIONS:\n{saif_recommendations}"
             ),
         ]
 
-        # write content to file for easier troubleshooting
-        with open("asset_dump.txt", "w") as f:
-            f.write(asset_dump_text)
-        with open("saif_recommendations.txt", "w") as f:
-            f.write(saif_recommendations)
+        if DEBUG_MODE:
+            with open("asset_dump.txt", "w") as f:
+                f.write(asset_dump_text)
+            with open("saif_recommendations.txt", "w") as f:
+                f.write(saif_recommendations)
 
         start_time = time.time()
-        client = genai.Client(
-            vertexai=True,
-            project=PROJECT_ID,
-            location=VERTEX_LOCATION,
-        )
+        client = _get_genai_client()
         response = client.models.generate_content(
             model=MODEL,
             contents=contents,
@@ -206,114 +262,15 @@ def gcp_project_tool(gcp_project_id: str):
         )
         LOGGER.info(f"Generating security report took {time.time() - start_time:.2f} seconds.")
         LOGGER.info("Successfully received response from the model.")
+
         if GENERATE_DASHBOARD:
-            try:
-                query = dedent(
-                    f"""
-                # Vulnerabilities
-                {response.text}
-                """
-                )
-
-                start_time = time.time()
-                contents = [
-                    types.Part.from_text(text=query),
-                ]
-
-                client = genai.Client(
-                    vertexai=True,
-                    project=PROJECT_ID,
-                    location=REGION,
-                )
-                response = client.models.generate_content(
-                    model=MODEL,
-                    contents=contents,
-                    config=types.GenerateContentConfig(
-                        system_instruction=DASHBOARD_SYSTEM_PROMPT,
-                        temperature=0.1,
-                        response_mime_type="application/json",
-                        response_schema=VulnerabilityList,
-                    ),
-                )
-                LOGGER.info(f"Generating dashboard data took {time.time() - start_time:.2f} seconds.")
-                vulnerabilities = json.loads(response.text)
-                table = pd.DataFrame(vulnerabilities["vulnerabilities"])
-                table["project_id"] = PROJECT_ID
-                table.to_gbq(
-                    f"{DASHBOARD_BQ_PROJECT}.{DASHBOARD_BQ_LOCATION}",
-                    project_id=DASHBOARD_BQ_PROJECT,
-                    if_exists="replace",
-                )
-                LOGGER.info(
-                    f"Successfully published to dashboard content to BigQuery: {DASHBOARD_BQ_PROJECT}.{DASHBOARD_BQ_LOCATION}"
-                )
-            except Exception as e:
-                LOGGER.warning(f"Error when publishing to dashboard: {e}")
+            LOGGER.info("Publishing findings to BigQuery dashboard in background thread...")
+            publish_dashboard_async(response.text, gcp_project_id)
 
         return response.text
+
     except Exception as e:
-        message = f"An exception occurred while calling GCP project tool: {e}"
-        LOGGER.error(message)
-        LOGGER.error(f"Traceback: {traceback.format_exc()}")
-        return message
-
-
-def _get_asset_inventory_resources(
-    project_id: str,
-) -> List[asset_v1.types.ResourceSearchResult]:
-    """
-    Fetches all resources from GCP Asset Inventory for a given project.
-    """
-    start_time = time.time()
-    try:
-        client = asset_v1.AssetServiceClient()
-        parent_scope = f"projects/{project_id}"
-        read_mask = field_mask_pb2.FieldMask(paths=["*"])
-
-        asset_inventory_response = client.search_all_resources(
-            request={
-                "asset_types": [
-                    "iam.googleapis.com/ServiceAccountKey",
-                    "iam.googleapis.com/ServiceAccount",
-                    "compute.googleapis.com/Route",
-                    "storage.googleapis.com/Bucket",
-                    "dns.googleapis.com/ResourceRecordSet",
-                    "dataplex.googleapis.com/EntryGroup",
-                    "compute.googleapis.com/ForwardingRule",
-                    "compute.googleapis.com/Address",
-                    "logging.googleapis.com/LogSink",
-                    "logging.googleapis.com/LogBucket",
-                    "compute.googleapis.com/UrlMap",
-                    "compute.googleapis.com/Subnetwork",
-                    "sqladmin.googleapis.com/Instance",
-                    "servicedirectory.googleapis.com/Service",
-                    "servicedirectory.googleapis.com/Namespace",
-                    "servicedirectory.googleapis.com/Endpoint",
-                    "run.googleapis.com/Service",
-                    "run.googleapis.com/Revision",
-                    "run.googleapis.com/Job",
-                    "dns.googleapis.com/ResponsePolicy",
-                    "dns.googleapis.com/ManagedZone",
-                    "compute.googleapis.com/TargetHttpsProxy",
-                    "compute.googleapis.com/TargetHttpProxy",
-                    "compute.googleapis.com/SslCertificate",
-                    "compute.googleapis.com/SecurityPolicy",
-                    "compute.googleapis.com/Project",
-                    "compute.googleapis.com/NetworkEndpointGroup",
-                    "compute.googleapis.com/Network",
-                    "compute.googleapis.com/BackendService",
-                    "cloudresourcemanager.googleapis.com/Project",
-                    "cloudbilling.googleapis.com/ProjectBillingInfo",
-                    "bigquery.googleapis.com/Table",
-                    "bigquery.googleapis.com/Dataset",
-                ],
-                "scope": parent_scope,
-                "read_mask": read_mask,
-            }
-        )
-        all_resources = list(asset_inventory_response)
-        LOGGER.info(f"Fetching Asset Inventory resources took {time.time() - start_time:.2f} seconds.")
-        return all_resources
-    except Exception as e:
-        LOGGER.error(f"An unexpected error occurred while fetching assets: {e}")
-        return []
+        error_msg = f"An exception occurred while calling GCP project tool: {e}"
+        LOGGER.error(error_msg)
+        LOGGER.error(traceback.format_exc())
+        return f"Tool Execution Failed: {error_msg}"

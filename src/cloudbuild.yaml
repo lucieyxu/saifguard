@@ -5,7 +5,7 @@ steps:
     entrypoint: 'bash'
     args:
       - '-c'
-      - 'docker pull ${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}:latest || true'
+      - 'docker pull ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}:latest || true'
 
   # 2. Build the container image using BuildKit and the pulled image for caching
   - name: 'gcr.io/cloud-builders/docker'
@@ -15,13 +15,13 @@ steps:
     args:
       - 'build'
       - '--cache-from'
-      - '${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}:latest'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}:latest'
       - '--build-arg'
       - 'BUILDKIT_INLINE_CACHE=1'
       - '-t'
-      - '${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}:${_TAG}'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}:${_TAG}'
       - '-t'
-      - '${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}:latest'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}:latest'
       - '.'
 
   # 3. Push the versioned build image to Artifact Registry
@@ -29,14 +29,14 @@ steps:
     id: 'Push Image'
     args:
       - 'push'
-      - '${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}:${_TAG}'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}:${_TAG}'
 
   # 4. Push the latest image to Artifact Registry for caching next time
   - name: 'gcr.io/cloud-builders/docker'
     id: 'Push Latest Image for Cache'
     args:
       - 'push'
-      - '${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}:latest'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}:latest'
 
   # 5. Deploy to Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
@@ -47,20 +47,19 @@ steps:
       - 'deploy'
       - '${_SERVICE_NAME}'
       - '--image'
-      - '${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}:${_TAG}'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}:${_TAG}'
       - '--region'
       - '${_REGION}'
       - '--project'
-      - '${_PROJECT_ID}'
+      - '${PROJECT_ID}'
       - '--platform'
       - 'managed'
       - '--set-env-vars'
-      - 'APP_TYPE=${_APP_TYPE},PROJECT_ID=${_PROJECT_ID},REGION=${_REGION},VERTEX_LOCATION=${_VERTEX_LOCATION},GOOGLE_CLOUD_PROJECT=${_PROJECT_ID},GOOGLE_CLOUD_LOCATION=${_REGION},DASHBOARD_BQ_PROJECT=${_PROJECT_ID}'
+      - 'APP_TYPE=${_APP_TYPE},PROJECT_ID=${PROJECT_ID},REGION=${_REGION},VERTEX_LOCATION=${_VERTEX_LOCATION},GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=${_REGION},DASHBOARD_BQ_PROJECT=${PROJECT_ID}'
       - '--service-account'
-      - 'saifguard-sa@${_PROJECT_ID}.iam.gserviceaccount.com'
+      - 'saifguard-sa@${PROJECT_ID}.iam.gserviceaccount.com'
 
 substitutions:
-  _PROJECT_ID: 'saifguard'
   _REGION: 'europe-west1'
   _VERTEX_LOCATION: 'global'
   _AR_REPO: 'saifguard-registry'
