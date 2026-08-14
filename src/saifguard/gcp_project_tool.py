@@ -62,7 +62,7 @@ DISCOVERY_TOOL_SYSTEM_PROMPT = load_skill_instructions(
     "gcp_security_audit", _FALLBACK_DISCOVERY_PROMPT
 )
 
-DISCOVERY_TOOL_QUERY_PROMPT = "Inspect the GCP project assets provided and generate detailed recommendations to improve the overall security posture. Use the provided Google Search results for the latest SAIF compliance recommendations as a reference."
+DISCOVERY_TOOL_QUERY_PROMPT = "Inspect the GCP project assets provided and generate detailed recommendations to improve the overall security posture. Use the provided Google Search results for the latest SAIF compliance recommendations as a reference. In all remediation steps, only provide production-ready GA gcloud commands, Cloud Console steps, or REST APIs; do NOT recommend gcloud alpha or beta commands."
 
 AI_SECURITY_ASSET_TYPES = [
     # --- Core GCP Infrastructure & Security ---
