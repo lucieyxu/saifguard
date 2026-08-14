@@ -299,7 +299,8 @@ def session_list_pane():
           )
         ),
         border_radius=8,
-        cursor="pointer",
+        cursor="not-allowed" if state.in_progress else "pointer",
+        opacity=0.6 if (state.in_progress and not is_active) else 1.0,
         margin=me.Margin.symmetric(horizontal=10, vertical=5),
         padding=me.Padding.all(10),
         display="flex",
@@ -661,6 +662,8 @@ def menu_item(
 def on_click_example_user_query(e: me.ClickEvent):
   """Populates the user input with the example query"""
   state = me.state(State)
+  if state.in_progress:
+    return
   _, example_index = e.key.split("-")
   state.input = _EXAMPLE_USER_QUERIES[int(example_index)]
   me.focus_component(key="chat_input")
@@ -669,6 +672,8 @@ def on_click_example_user_query(e: me.ClickEvent):
 def on_click_header_dashboard(e: me.ClickEvent):
   """Populates user prompt to trigger dashboard generation."""
   state = me.state(State)
+  if state.in_progress:
+    return
   state.input = "Publish the latest security audit findings to the Data Studio BigQuery dashboard."
   me.focus_component(key="chat_input")
 
@@ -676,14 +681,13 @@ def on_click_header_dashboard(e: me.ClickEvent):
 def on_click_publish_msg_dashboard(e: me.ClickEvent):
   """Populates user prompt to publish a specific message's findings to the dashboard."""
   state = me.state(State)
+  if state.in_progress:
+    return
   _, msg_index = e.key.split("-")
   msg_index = int(msg_index)
   target_msg = state.output[msg_index]
   state.input = f"Publish the following security audit findings to the Data Studio BigQuery dashboard:\n\n{target_msg.content}"
   me.focus_component(key="chat_input")
-
-
-
 
 
 def on_click_thumb_up(e: me.ClickEvent):
@@ -705,6 +709,8 @@ def on_click_thumb_down(e: me.ClickEvent):
 def on_click_new_chat(e: me.ClickEvent):
   """Starts a new chat session."""
   state = me.state(State)
+  if state.in_progress:
+    return
   state.current_session_id = agent.create_user_session(state.user_id)
   state.output = []
   me.focus_component(key="chat_input")
@@ -713,9 +719,11 @@ def on_click_new_chat(e: me.ClickEvent):
 def on_click_session(e: me.ClickEvent):
   """Loads existing chat from Agent Platform Sessions."""
   state = me.state(State)
+  if state.in_progress:
+    return
   raw_key = str(getattr(e, "key", "") or "")
   session_id = raw_key.removeprefix("session-").strip()
-  if session_id:
+  if session_id and session_id != state.current_session_id:
     state.current_session_id = session_id
     _load_session(state, session_id)
   me.focus_component(key="chat_input")
@@ -744,6 +752,8 @@ def on_chat_input(e: me.InputBlurEvent):
 def on_click_regenerate(e: me.ClickEvent):
   """Regenerates response from an existing message"""
   state = me.state(State)
+  if state.in_progress:
+    return
   _, msg_index = e.key.split("-")
   msg_index = int(msg_index)
 
@@ -789,6 +799,7 @@ def _submit_chat_msg():
   if not state.current_session_id:
     state.current_session_id = agent.create_user_session(state.user_id)
 
+  active_session_id = state.current_session_id
   user_input = state.input
   session_title = _clean_session_title(user_input, 32)
 
@@ -828,6 +839,10 @@ def _submit_chat_msg():
   selected_model = getattr(state, "selected_model", "") or "gemini-3.6-flash"
 
   for chunk in response_generator:
+    # Abort if the session was switched concurrently
+    if state.current_session_id != active_session_id:
+      break
+
     is_tool_response = chunk.strip().startswith("*tool*:")
 
     if is_tool_response:
