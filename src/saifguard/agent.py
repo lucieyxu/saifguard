@@ -114,18 +114,7 @@ class SAIFGuardAgent:
         target_model = model_name or self.default_model
         svc = session_service or self.session_manager.session_service
 
-        agent = Agent(
-            model=target_model,
-            name="SAIFGuard",
-            description="SAIFGuard helps you secure your apps on GCP.",
-            instruction=AGENT_INSTRUCTION_PROMPT,
-            tools=[
-                analysis_tool,
-                gcp_project_tool,
-                google_search_tool,
-                publish_dashboard_tool,
-            ],
-        )
+        agent = build_agent(target_model)
         return Runner(
             app_name=self.session_manager.app_name,
             agent=agent,
@@ -210,3 +199,6 @@ class SAIFGuardAgent:
                                     pass
             elif isinstance(item, str):
                 yield item
+
+
+root_agent = build_agent(MODEL)
