@@ -354,6 +354,7 @@ def header():
       me.select(
         label="Model",
         options=[
+          me.SelectOption(label="Gemini 3.7 Flash", value="gemini-3.7-flash"),
           me.SelectOption(label="Gemini 3.6 Flash", value="gemini-3.6-flash"),
           me.SelectOption(label="Gemini 3.5 Flash", value="gemini-3.5-flash"),
           me.SelectOption(label="Gemini 3.5 Flash Lite", value="gemini-3.5-flash-lite"),
