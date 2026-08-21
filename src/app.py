@@ -6,6 +6,7 @@ from fastapi.responses import StreamingResponse
 from models.query_request import QueryRequest
 from saifguard.agent import SAIFGuardAgent
 
+LOGGER = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 app = FastAPI(
@@ -36,5 +37,5 @@ async def invoke_agent(request: QueryRequest):
         return StreamingResponse(response, media_type="text/plain")
 
     except Exception as e:
-        print(f"Error during agent invocation: {e}")
+        LOGGER.exception("Error during agent invocation: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
