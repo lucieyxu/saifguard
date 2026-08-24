@@ -17,7 +17,7 @@ from saifguard.config import (
     VERTEX_LOCATION,
 )
 from saifguard.sessions import SessionManager
-from saifguard.progress import set_progress_queue
+from saifguard.progress import reset_progress_queue, set_progress_queue
 
 os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "True"
 os.environ["GOOGLE_CLOUD_PROJECT"] = PROJECT_ID
@@ -133,10 +133,9 @@ class SAIFGuardAgent:
         )
 
         q = queue.Queue()
-        set_progress_queue(q, session_id=effective_session_id)
 
         def worker():
-            set_progress_queue(q, session_id=effective_session_id)
+            token = set_progress_queue(q, session_id=effective_session_id)
             runner = self._get_runner(target_model)
             try:
                 for event in runner.run(
@@ -148,7 +147,7 @@ class SAIFGuardAgent:
                 q.put(("ERROR", str(e)))
             finally:
                 q.put(("DONE", None))
-                set_progress_queue(None, session_id=effective_session_id)
+                reset_progress_queue(token, session_id=effective_session_id)
 
         threading.Thread(target=worker, daemon=True).start()
 

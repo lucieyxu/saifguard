@@ -7,6 +7,7 @@ import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 
+from google.adk.tools import ToolContext
 from google import genai
 from google.cloud import asset_v1
 from google.genai import types
@@ -184,17 +185,18 @@ def _fetch_model_armor_security(gcp_project_id: str) -> dict:
     return findings
 
 
-def gcp_project_tool(gcp_project_id: str) -> str:
+def gcp_project_tool(gcp_project_id: str, tool_context: ToolContext = None) -> str:
     """Audit GCP resources in a target project for SAIF framework security compliance.
 
     Args:
         gcp_project_id: The target GCP Project ID to scan.
     """
-    LOGGER.info(f"Starting GCP Project Security Audit for project: {gcp_project_id}")
+    s_id = getattr(getattr(tool_context, "session", None), "id", None)
+    LOGGER.info(f"Starting GCP Project Security Audit for project: {gcp_project_id} (session: {s_id})")
     start_time = time.time()
     asset_client = _get_asset_client()
 
-    emit_progress(f"🔍 [1/3] Getting SAIF recommendations & scanning GCP resources for `{gcp_project_id}`...")
+    emit_progress(f"🔍 [1/3] Getting SAIF recommendations & scanning GCP resources for `{gcp_project_id}`...", session_id=s_id)
 
     try:
         def fetch_saif():
@@ -226,8 +228,8 @@ def gcp_project_tool(gcp_project_id: str) -> str:
         LOGGER.info(f"Parallel data fetching (SAIF, Asset Inventory & Model Armor) took {time.time() - start_time:.2f} seconds.")
         LOGGER.info(f"Asset Inventory found {len(resources)} resources.")
 
-        emit_progress(f"📊 [2/3] Retrieved SAIF guidelines & {len(resources)} GCP resources.")
-        emit_progress(f"🧠 [3/3] Inspecting resources & generating recommendations...")
+        emit_progress(f"📊 [2/3] Retrieved SAIF guidelines & {len(resources)} GCP resources.", session_id=s_id)
+        emit_progress(f"🧠 [3/3] Inspecting resources & generating recommendations...", session_id=s_id)
 
         if resources:
             resources_as_dicts = [
@@ -270,7 +272,7 @@ def gcp_project_tool(gcp_project_id: str) -> str:
         LOGGER.info("Successfully received response from the model.")
 
         if GENERATE_DASHBOARD:
-            emit_progress("📈 Publishing findings to Data Studio BigQuery dashboard...")
+            emit_progress("📈 Publishing findings to Data Studio BigQuery dashboard...", session_id=s_id)
             publish_dashboard_async(response.text, gcp_project_id)
 
         return response.text

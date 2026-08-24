@@ -33,7 +33,12 @@ async def invoke_agent(request: QueryRequest):
         raise HTTPException(status_code=500, detail="Agent not initialized.")
 
     try:
-        response = agent.invoke(user_id=request.user_id, message=request.message)
+        response = agent.invoke(
+            user_id=request.user_id,
+            message=request.message,
+            session_id=request.session_id,
+            model=request.model,
+        )
         return StreamingResponse(response, media_type="text/plain")
 
     except Exception as e:

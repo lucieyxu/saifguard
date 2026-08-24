@@ -1,6 +1,7 @@
 import logging
 import traceback
 
+from google.adk.tools import ToolContext
 from google.cloud import storage
 from google import genai
 from google.genai import types
@@ -33,15 +34,16 @@ Make sure you show both recommendations related to SAIF compliance recommendatio
 """
 
 
-def analysis_tool(gcs_uri: str):
+def analysis_tool(gcs_uri: str, tool_context: ToolContext = None):
     """Analyze the documents within a GCS bucket.
 
     Args:
         gcs_uri (str): GCS bucket URI (e.g., gs://my-bucket/folder/).
     """
     try:
-        LOGGER.info(f"Calling analysis_tool with {gcs_uri}")
-        emit_progress(f"📂 [1/2] Fetching SAIF recommendations & reading design documents from `{gcs_uri}`...")
+        s_id = getattr(getattr(tool_context, "session", None), "id", None)
+        LOGGER.info(f"Calling analysis_tool with {gcs_uri} (session: {s_id})")
+        emit_progress(f"📂 [1/2] Fetching SAIF recommendations & reading design documents from `{gcs_uri}`...", session_id=s_id)
 
         # Get latest SAIF recommendations from Google Search
         LOGGER.info("Fetching latest SAIF recommendations using Google Search.")
