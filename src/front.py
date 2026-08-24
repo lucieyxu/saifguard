@@ -360,7 +360,7 @@ def header():
           me.SelectOption(label="Gemini 3.5 Flash Lite", value="gemini-3.5-flash-lite"),
           me.SelectOption(label="Gemini 3.1 Pro", value="gemini-3.1-pro"),
         ],
-        value=state.selected_model or "gemini-3.6-flash",
+        value=state.selected_model or "gemini-3.7-flash",
         on_selection_change=on_model_selection_change,
         style=me.Style(width="220px"),
       )
