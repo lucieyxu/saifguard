@@ -9,7 +9,7 @@ from typing import Callable, Literal
 from zoneinfo import ZoneInfo
 
 from saifguard.agent import SAIFGuardAgent
-from saifguard.config import TIMEZONE
+from saifguard.config import MODEL, TIMEZONE
 
 
 import mesop as me
@@ -60,7 +60,7 @@ class State:
   output: list[ChatMessage]
   in_progress: bool = False
   sidebar_expanded: bool = False
-  selected_model: str = "gemini-3.6-flash"
+  selected_model: str = MODEL
   user_id: str = ""
   current_session_id: str = ""
   sessions: list[dict]
@@ -123,7 +123,7 @@ def _load_session(state: State, session_id: str):
         ChatMessage(
           role=m.get("role", "user"),
           content=str(m.get("content", "")),
-          model=str(state.selected_model or "gemini-3.6-flash"),
+          model=str(state.selected_model or MODEL),
           timestamp=str(m.get("timestamp") or _current_timestamp()),
         )
         for m in raw_messages
@@ -137,7 +137,7 @@ def _load_session(state: State, session_id: str):
 
 def respond_to_chat(input: str):
   state = me.state(State)
-  selected_model = getattr(state, "selected_model", None) or "gemini-3.6-flash"
+  selected_model = getattr(state, "selected_model", None) or MODEL
   if not state.current_session_id:
     state.current_session_id = f"session_{uuid.uuid4().hex[:10]}"
 
@@ -862,7 +862,7 @@ def _submit_chat_msg():
   current_final_message = None
   progress_steps: list[str] = []
 
-  selected_model = getattr(state, "selected_model", "") or "gemini-3.6-flash"
+  selected_model = getattr(state, "selected_model", "") or MODEL
 
   for chunk in response_generator:
     # Abort if the session was switched concurrently
