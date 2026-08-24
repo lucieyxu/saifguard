@@ -50,7 +50,7 @@ def google_search_tool(query: str):
             config=config,
         )
 
-        LOGGER.info("Successfully received response from the model with Google Search grounding.")
+        LOGGER.debug("Successfully received response from the model with Google Search grounding.")
         return response.text
     except Exception as e:
         message = f"An exception occurred while calling Google Search tool: {e}"

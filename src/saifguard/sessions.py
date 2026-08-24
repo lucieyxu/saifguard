@@ -41,7 +41,7 @@ class SessionManager:
                 location=self.session_location,
                 agent_engine_id=self.agent_runtime_id,
             )
-            LOGGER.info(
+            LOGGER.debug(
                 f"Initialized Agent Platform Session Service for project={self.project_id}, location={self.session_location}"
             )
         except Exception as e:

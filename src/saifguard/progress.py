@@ -60,6 +60,6 @@ def emit_progress(msg: str, session_id: str = None) -> None:
 
     if target_q is not None:
         target_q.put(clean_msg)
-        LOGGER.info(f"Emitted progress (session={session_id}): {clean_msg}")
+        LOGGER.debug(f"Emitted progress (session={session_id}): {clean_msg}")
     else:
         LOGGER.warning(f"Progress dropped (no matching queue for session={session_id}): {clean_msg}")

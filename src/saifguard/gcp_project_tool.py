@@ -123,7 +123,7 @@ def _get_cached_saif_recommendations() -> str:
                 with open(cache_file, "r", encoding="utf-8") as f:
                     content = f.read()
                 if content and "An exception occurred" not in content:
-                    LOGGER.info("Loaded SAIF recommendations from disk cache.")
+                    LOGGER.debug("Loaded SAIF recommendations from disk cache.")
                     return content
         except Exception as e:
             LOGGER.warning(f"Could not read SAIF recommendations disk cache: {e}")
@@ -134,7 +134,7 @@ def _get_cached_saif_recommendations() -> str:
         try:
             with open(cache_file, "w", encoding="utf-8") as f:
                 f.write(result)
-            LOGGER.info(f"Saved SAIF recommendations to disk cache: {cache_file}")
+            LOGGER.debug(f"Saved SAIF recommendations to disk cache: {cache_file}")
         except Exception as e:
             LOGGER.warning(f"Could not write SAIF recommendations disk cache: {e}")
 
@@ -163,7 +163,7 @@ def _fetch_model_armor_security(gcp_project_id: str) -> dict:
                     data = resp.json()
                     findings["templates"].extend(data.get("templates", []))
                 elif resp.status_code not in (404, 403):
-                    LOGGER.info(f"Model Armor Templates ({loc}) status: {resp.status_code}")
+                    LOGGER.debug(f"Model Armor Templates ({loc}) status: {resp.status_code}")
             except Exception as te:
                 LOGGER.debug(f"Could not fetch Model Armor templates for {loc}: {te}")
 
@@ -175,12 +175,12 @@ def _fetch_model_armor_security(gcp_project_id: str) -> dict:
                     data = resp.json()
                     findings["floor_settings"].append(data)
                 elif resp.status_code not in (404, 403):
-                    LOGGER.info(f"Model Armor Floor Settings ({loc}) status: {resp.status_code}")
+                    LOGGER.debug(f"Model Armor Floor Settings ({loc}) status: {resp.status_code}")
             except Exception as fe:
                 LOGGER.debug(f"Could not fetch Model Armor floor settings for {loc}: {fe}")
 
     except Exception as e:
-        LOGGER.info(f"Model Armor inspection skipped: {e}")
+        LOGGER.debug(f"Model Armor inspection skipped: {e}")
 
     return findings
 
@@ -269,7 +269,7 @@ def gcp_project_tool(gcp_project_id: str, tool_context: ToolContext = None) -> s
             ),
         )
         LOGGER.info(f"Generating security report took {time.time() - gen_start_time:.2f} seconds.")
-        LOGGER.info("Successfully received response from the model.")
+        LOGGER.debug("Successfully received response from the model.")
 
         if GENERATE_DASHBOARD:
             emit_progress("📈 Publishing findings to Data Studio BigQuery dashboard...", session_id=s_id)

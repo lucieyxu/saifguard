@@ -162,9 +162,9 @@ class SAIFGuardAgent:
                     break
                 elif kind == "EVENT":
                     event = payload
-                    LOGGER.info("**** START ADK 2 EVENT *****")
-                    LOGGER.info(event)
-                    LOGGER.info("**** END ADK 2 EVENT *****")
+                    LOGGER.debug("**** START ADK 2 EVENT *****")
+                    LOGGER.debug(event)
+                    LOGGER.debug("**** END ADK 2 EVENT *****")
 
                     if (
                         hasattr(event, "content")

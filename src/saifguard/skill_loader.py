@@ -26,7 +26,7 @@ def load_skill_instructions(skill_name: str, fallback_prompt: str = "") -> str:
     skill_file = SKILLS_DIR / skill_name / "SKILL.md"
     try:
         body = _strip_frontmatter(skill_file.read_text())
-        LOGGER.info(f"Loaded skill '{skill_name}' from {skill_file}")
+        LOGGER.debug(f"Loaded skill '{skill_name}' from {skill_file}")
         return body
     except OSError as e:
         # An audit prompt silently degrading to a stub would produce a report

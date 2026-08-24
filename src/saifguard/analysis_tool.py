@@ -46,7 +46,7 @@ def analysis_tool(gcs_uri: str, tool_context: ToolContext = None):
         emit_progress(f"📂 [1/2] Fetching SAIF recommendations & reading design documents from `{gcs_uri}`...", session_id=s_id)
 
         # Get latest SAIF recommendations from Google Search
-        LOGGER.info("Fetching latest SAIF recommendations using Google Search.")
+        LOGGER.debug("Fetching latest SAIF recommendations using Google Search.")
         saif_recommendations = google_search_tool(GOOGLE_SEARCH_SAIF_PROMPT)
 
         contents = []
@@ -55,7 +55,7 @@ def analysis_tool(gcs_uri: str, tool_context: ToolContext = None):
         storage_client = storage.Client()
         bucket_name = gcs_uri.replace("gs://", "").strip("/")
         bucket = storage_client.bucket(bucket_name)        
-        LOGGER.info(f"Listing files in bucket '{bucket_name}'.")
+        LOGGER.debug(f"Listing files in bucket '{bucket_name}'.")
         blobs = list(bucket.list_blobs())
 
         # Construct the prompt with documents and their names
@@ -65,7 +65,7 @@ def analysis_tool(gcs_uri: str, tool_context: ToolContext = None):
         for blob in blobs:
             file_uri = f"gs://{bucket_name}/{blob.name}"
             file_name = blob.name
-            LOGGER.info(f"Adding file '{file_name}' from {file_uri} to analysis contents.")
+            LOGGER.debug(f"Adding file '{file_name}' from {file_uri} to analysis contents.")
             
             # Provide the file name as context for the LLM
             contents.append(types.Part.from_text(text=f"\nDocument name: {file_name}"))
@@ -89,7 +89,7 @@ def analysis_tool(gcs_uri: str, tool_context: ToolContext = None):
                 temperature=0.1,
             ),
         )
-        LOGGER.info(response)
+        LOGGER.debug("Received analysis response from Gemini.")
         return response.text
     except Exception as e:
         message = f"An exception occurred while calling analysis_tool: {e}"
