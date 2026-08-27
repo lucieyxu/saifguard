@@ -39,6 +39,7 @@ RUN chown -R appuser:appgroup /app
 
 USER appuser
 
+ENV TZ="Europe/Paris"
 ENV PORT=8080
 EXPOSE 8080
 

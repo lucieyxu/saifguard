@@ -130,16 +130,25 @@ def publish_dashboard_tool(report_text: str, gcp_project_id: str = "") -> str:
             f"Generating dashboard data took {time.time() - start_time:.2f} seconds."
         )
         vulnerabilities = json.loads(response.text)
-        table = pd.DataFrame(vulnerabilities["vulnerabilities"])
-        table["project_id"] = target_project
-        table.to_gbq(
-            f"{DASHBOARD_BQ_PROJECT}.{DASHBOARD_BQ_LOCATION}",
-            project_id=DASHBOARD_BQ_PROJECT,
-            if_exists="replace",
-        )
+        raw_items = vulnerabilities.get("vulnerabilities", [])
+        if raw_items:
+            from google.cloud import bigquery
+            bq_client = bigquery.Client(project=DASHBOARD_BQ_PROJECT)
+            table = pd.DataFrame(raw_items)
+            table["project_id"] = target_project
+            dataset_table = f"{DASHBOARD_BQ_PROJECT}.{DASHBOARD_BQ_LOCATION}"
+            job_config = bigquery.LoadJobConfig(write_disposition="WRITE_TRUNCATE")
+            job = bq_client.load_table_from_dataframe(
+                table, dataset_table, job_config=job_config
+            )
+            job.result()
+            row_count = len(table)
+        else:
+            row_count = 0
+
         dashboard_url = get_data_studio_dashboard_url(target_project)
         msg = (
-            f"Successfully published {len(table)} vulnerability record(s) to BigQuery dashboard table `{DASHBOARD_BQ_PROJECT}.{DASHBOARD_BQ_LOCATION}` for project `{target_project}`.\n\n"
+            f"Successfully published {row_count} vulnerability record(s) to BigQuery dashboard table `{DASHBOARD_BQ_PROJECT}.{DASHBOARD_BQ_LOCATION}` for project `{target_project}`.\n\n"
             f"📊 **Data Studio Security Dashboard**: [Open Auto-Populated Dashboard Template]({dashboard_url})"
         )
         LOGGER.info(msg)

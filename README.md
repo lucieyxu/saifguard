@@ -208,7 +208,7 @@ gcloud iam service-accounts add-iam-policy-binding "saifguard-sa@YOUR_PROJECT_ID
 cd src
 gcloud builds submit . \
   --config=cloudbuild.yaml \
-  --substitutions=_PROJECT_ID="YOUR_PROJECT_ID",_REGION="YOUR_REGION",_AR_REPO="YOUR_AR_REPOSITORY",_SERVICE_NAME="saifguard-ui",_APP_TYPE="mesop"
+  --substitutions=_PROJECT_ID="YOUR_PROJECT_ID",_REGION="YOUR_REGION",_AR_REPO="YOUR_AR_REPOSITORY",_SERVICE_NAME="saifguard-ui",_APP_TYPE="mesop",_ENABLE_IAP="true"
 ```
 
 #### 2. Deploy the FastAPI Backend API
@@ -216,7 +216,7 @@ gcloud builds submit . \
 cd src
 gcloud builds submit . \
   --config=cloudbuild.yaml \
-  --substitutions=_PROJECT_ID="YOUR_PROJECT_ID",_REGION="YOUR_REGION",_AR_REPO="YOUR_AR_REPOSITORY",_SERVICE_NAME="saifguard-api",_APP_TYPE="api"
+  --substitutions=_PROJECT_ID="YOUR_PROJECT_ID",_REGION="YOUR_REGION",_AR_REPO="YOUR_AR_REPOSITORY",_SERVICE_NAME="saifguard-api",_APP_TYPE="api",_ENABLE_IAP="false"
 ```
 
 #### 3. Deploy the Built-in ADK Web UI (adk-web)
@@ -225,7 +225,7 @@ Deploy the built-in [adk-web](https://github.com/google/adk-web) UI to inspect t
 cd src
 gcloud builds submit . \
   --config=cloudbuild.yaml \
-  --substitutions=_PROJECT_ID="YOUR_PROJECT_ID",_REGION="YOUR_REGION",_AR_REPO="YOUR_AR_REPOSITORY",_SERVICE_NAME="saifguard-adk-ui",_APP_TYPE="adk-web"
+  --substitutions=_PROJECT_ID="YOUR_PROJECT_ID",_REGION="YOUR_REGION",_AR_REPO="YOUR_AR_REPOSITORY",_SERVICE_NAME="saifguard-adk-ui",_APP_TYPE="adk-web",_ENABLE_IAP="true"
 ```
 Example for deploying to `saifguard-test`:
 ```bash
@@ -233,10 +233,11 @@ cd src
 gcloud builds submit . \
   --config=cloudbuild.yaml \
   --project=saifguard-test \
-  --substitutions=_PROJECT_ID="saifguard-test",_REGION="europe-west1",_AR_REPO="saifguard-registry",_SERVICE_NAME="saifguard-adk-ui",_APP_TYPE="adk-web"
+  --substitutions=_PROJECT_ID="saifguard-test",_REGION="europe-west1",_AR_REPO="saifguard-registry",_SERVICE_NAME="saifguard-adk-ui",_APP_TYPE="adk-web",_ENABLE_IAP="true"
 ```
 **Accessing the Deployed ADK Web UI on Cloud Run:**
 By default, Cloud Run services require IAM authentication. Standard browsers do not attach GCP Bearer tokens automatically. To securely access the UI:
+- **Using Direct IAP (Recommended):** Open the Cloud Run URL directly in your browser. Users authenticate via Google SSO.
 - **Using gcloud proxy:**
   ```bash
   gcloud run services proxy saifguard-adk-ui --project=YOUR_PROJECT_ID --region=europe-west1
@@ -333,6 +334,7 @@ Click the direct auto-provisioning template link:
 To protect the SAIFGuard Mesop UI without exposing it publicly, you can enable **Direct IAP** directly on Cloud Run (without requiring an external HTTPS Load Balancer):
 
 ### 1. Enable Direct IAP on Cloud Run
+When deploying via Cloud Build, Direct IAP is enabled by default (`_ENABLE_IAP="true"`). Alternatively, you can enable or update it manually:
 ```bash
 # Enable IAP directly on your Cloud Run service
 gcloud run services update saifguard-ui \
@@ -341,20 +343,55 @@ gcloud run services update saifguard-ui \
   --project="YOUR_PROJECT_ID"
 ```
 
-### 2. Grant Access Permissions
-Assign the **IAP-secured Web App User** (`roles/iap.httpsResourceAccessor`) role to permitted users or domain members:
+### 2. Authorize the IAP Service Agent as Cloud Run Invoker
+Cloud Run requires the IAP Service Agent to have permission to invoke the service:
+```bash
+PROJECT_NUMBER=$(gcloud projects describe "YOUR_PROJECT_ID" --format="value(projectNumber)")
+
+gcloud run services add-iam-policy-binding saifguard-ui \
+  --member="serviceAccount:service-${PROJECT_NUMBER}@gcp-sa-iap.iam.gserviceaccount.com" \
+  --role="roles/run.invoker" \
+  --region="YOUR_REGION" \
+  --project="YOUR_PROJECT_ID"
+```
+
+### 3. Grant User & Group Access Permissions
+Assign the **IAP-secured Web App User** (`roles/iap.httpsResourceAccessor`) role to permitted users, groups, or domains at the Cloud Run service level:
 
 ```bash
-# Grant access to a specific user
-gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+# Grant access to a specific user on the Cloud Run service
+gcloud iap web add-iam-policy-binding \
+  --resource-type=cloud-run \
+  --service=saifguard-ui \
+  --region="YOUR_REGION" \
+  --project="YOUR_PROJECT_ID" \
   --member="user:your-email@domain.com" \
   --role="roles/iap.httpsResourceAccessor"
 
-# Grant access to all users in an organization domain
+# Grant access to a Google Group on the Cloud Run service
+gcloud iap web add-iam-policy-binding \
+  --resource-type=cloud-run \
+  --service=saifguard-ui \
+  --region="YOUR_REGION" \
+  --project="YOUR_PROJECT_ID" \
+  --member="group:your-group@domain.com" \
+  --role="roles/iap.httpsResourceAccessor"
+
+# Alternatively, grant project-wide IAP access:
 gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
   --member="domain:yourdomain.com" \
   --role="roles/iap.httpsResourceAccessor"
 ```
 
+### 4. Direct Browser Access
+Once IAP and permissions are set up, navigate directly to your Cloud Run URL in any browser:
+```text
+https://saifguard-ui-[HASH]-[REGION].a.run.app
+```
+Users will authenticate with Google SSO and will be automatically allowed based on the IAP IAM policy.
+
 ### Troubleshooting: "You don't have access" (IAP Authorization)
-If users receive *You don't have access* after Google login, verify that `roles/iap.httpsResourceAccessor` has been granted to their account or domain.
+If users receive *You don't have access* after Google login:
+- Verify that `roles/iap.httpsResourceAccessor` is bound to their email/group on the IAP Cloud Run resource (`gcloud iap web get-iam-policy ...`).
+- Verify that the IAP Service Agent (`service-${PROJECT_NUMBER}@gcp-sa-iap.iam.gserviceaccount.com`) has `roles/run.invoker` on the Cloud Run service.
+

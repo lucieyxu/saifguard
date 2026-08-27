@@ -7,6 +7,7 @@ import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 
+from google.adk.tools import ToolContext
 from google import genai
 from google.cloud import asset_v1
 from google.genai import types
@@ -24,6 +25,7 @@ from saifguard.config import (
 )
 from saifguard.dashboard_tool import publish_dashboard_async
 from saifguard.google_search_tool import google_search_tool
+from saifguard.progress import emit_progress
 from saifguard.skill_loader import load_skill_instructions
 
 LOGGER = logging.getLogger(__name__)
@@ -61,7 +63,7 @@ DISCOVERY_TOOL_SYSTEM_PROMPT = load_skill_instructions(
     "gcp_security_audit", _FALLBACK_DISCOVERY_PROMPT
 )
 
-DISCOVERY_TOOL_QUERY_PROMPT = "Inspect the GCP project assets provided and generate detailed recommendations to improve the overall security posture. Use the provided Google Search results for the latest SAIF compliance recommendations as a reference."
+DISCOVERY_TOOL_QUERY_PROMPT = "Inspect the GCP project assets provided and generate detailed recommendations to improve the overall security posture. Use the provided Google Search results for the latest SAIF compliance recommendations as a reference. In all remediation steps, only provide production-ready GA gcloud commands, Cloud Console steps, or REST APIs; do NOT recommend gcloud alpha or beta commands."
 
 AI_SECURITY_ASSET_TYPES = [
     # --- Core GCP Infrastructure & Security ---
@@ -121,7 +123,7 @@ def _get_cached_saif_recommendations() -> str:
                 with open(cache_file, "r", encoding="utf-8") as f:
                     content = f.read()
                 if content and "An exception occurred" not in content:
-                    LOGGER.info("Loaded SAIF recommendations from disk cache.")
+                    LOGGER.debug("Loaded SAIF recommendations from disk cache.")
                     return content
         except Exception as e:
             LOGGER.warning(f"Could not read SAIF recommendations disk cache: {e}")
@@ -132,7 +134,7 @@ def _get_cached_saif_recommendations() -> str:
         try:
             with open(cache_file, "w", encoding="utf-8") as f:
                 f.write(result)
-            LOGGER.info(f"Saved SAIF recommendations to disk cache: {cache_file}")
+            LOGGER.debug(f"Saved SAIF recommendations to disk cache: {cache_file}")
         except Exception as e:
             LOGGER.warning(f"Could not write SAIF recommendations disk cache: {e}")
 
@@ -161,7 +163,7 @@ def _fetch_model_armor_security(gcp_project_id: str) -> dict:
                     data = resp.json()
                     findings["templates"].extend(data.get("templates", []))
                 elif resp.status_code not in (404, 403):
-                    LOGGER.info(f"Model Armor Templates ({loc}) status: {resp.status_code}")
+                    LOGGER.debug(f"Model Armor Templates ({loc}) status: {resp.status_code}")
             except Exception as te:
                 LOGGER.debug(f"Could not fetch Model Armor templates for {loc}: {te}")
 
@@ -173,25 +175,28 @@ def _fetch_model_armor_security(gcp_project_id: str) -> dict:
                     data = resp.json()
                     findings["floor_settings"].append(data)
                 elif resp.status_code not in (404, 403):
-                    LOGGER.info(f"Model Armor Floor Settings ({loc}) status: {resp.status_code}")
+                    LOGGER.debug(f"Model Armor Floor Settings ({loc}) status: {resp.status_code}")
             except Exception as fe:
                 LOGGER.debug(f"Could not fetch Model Armor floor settings for {loc}: {fe}")
 
     except Exception as e:
-        LOGGER.info(f"Model Armor inspection skipped: {e}")
+        LOGGER.debug(f"Model Armor inspection skipped: {e}")
 
     return findings
 
 
-def gcp_project_tool(gcp_project_id: str) -> str:
+def gcp_project_tool(gcp_project_id: str, tool_context: ToolContext = None) -> str:
     """Audit GCP resources in a target project for SAIF framework security compliance.
 
     Args:
         gcp_project_id: The target GCP Project ID to scan.
     """
-    LOGGER.info(f"Starting GCP Project Security Audit for project: {gcp_project_id}")
+    s_id = getattr(getattr(tool_context, "session", None), "id", None)
+    LOGGER.info(f"Starting GCP Project Security Audit for project: {gcp_project_id} (session: {s_id})")
     start_time = time.time()
     asset_client = _get_asset_client()
+
+    emit_progress(f"🔍 [1/3] Getting SAIF recommendations & scanning GCP resources for `{gcp_project_id}`...", session_id=s_id)
 
     try:
         def fetch_saif():
@@ -223,6 +228,9 @@ def gcp_project_tool(gcp_project_id: str) -> str:
         LOGGER.info(f"Parallel data fetching (SAIF, Asset Inventory & Model Armor) took {time.time() - start_time:.2f} seconds.")
         LOGGER.info(f"Asset Inventory found {len(resources)} resources.")
 
+        emit_progress(f"📊 [2/3] Retrieved SAIF guidelines & {len(resources)} GCP resources.", session_id=s_id)
+        emit_progress(f"🧠 [3/3] Inspecting resources & generating recommendations...", session_id=s_id)
+
         if resources:
             resources_as_dicts = [
                 json.loads(MessageToJson(res._pb)) for res in resources
@@ -250,7 +258,7 @@ def gcp_project_tool(gcp_project_id: str) -> str:
             with open("saif_recommendations.txt", "w") as f:
                 f.write(saif_recommendations)
 
-        start_time = time.time()
+        gen_start_time = time.time()
         client = _get_genai_client()
         response = client.models.generate_content(
             model=MODEL,
@@ -260,11 +268,11 @@ def gcp_project_tool(gcp_project_id: str) -> str:
                 temperature=0.1,
             ),
         )
-        LOGGER.info(f"Generating security report took {time.time() - start_time:.2f} seconds.")
-        LOGGER.info("Successfully received response from the model.")
+        LOGGER.info(f"Generating security report took {time.time() - gen_start_time:.2f} seconds.")
+        LOGGER.debug("Successfully received response from the model.")
 
         if GENERATE_DASHBOARD:
-            LOGGER.info("Publishing findings to BigQuery dashboard in background thread...")
+            emit_progress("📈 Publishing findings to Data Studio BigQuery dashboard...", session_id=s_id)
             publish_dashboard_async(response.text, gcp_project_id)
 
         return response.text

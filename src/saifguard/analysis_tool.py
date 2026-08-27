@@ -1,11 +1,13 @@
 import logging
 import traceback
 
+from google.adk.tools import ToolContext
 from google.cloud import storage
 from google import genai
 from google.genai import types
 from saifguard.config import MODEL, PROJECT_ID, VERTEX_LOCATION, GOOGLE_SEARCH_SAIF_PROMPT
 from saifguard.google_search_tool import google_search_tool
+from saifguard.progress import emit_progress
 from saifguard.skill_loader import load_skill_instructions
 
 LOGGER = logging.getLogger(__name__)
@@ -32,17 +34,19 @@ Make sure you show both recommendations related to SAIF compliance recommendatio
 """
 
 
-def analysis_tool(gcs_uri: str):
+def analysis_tool(gcs_uri: str, tool_context: ToolContext = None):
     """Analyze the documents within a GCS bucket.
 
     Args:
         gcs_uri (str): GCS bucket URI (e.g., gs://my-bucket/folder/).
     """
     try:
-        LOGGER.info(f"Calling analysis_tool with {gcs_uri}")
+        s_id = getattr(getattr(tool_context, "session", None), "id", None)
+        LOGGER.info(f"Calling analysis_tool with {gcs_uri} (session: {s_id})")
+        emit_progress(f"📂 [1/2] Fetching SAIF recommendations & reading design documents from `{gcs_uri}`...", session_id=s_id)
 
         # Get latest SAIF recommendations from Google Search
-        LOGGER.info("Fetching latest SAIF recommendations using Google Search.")
+        LOGGER.debug("Fetching latest SAIF recommendations using Google Search.")
         saif_recommendations = google_search_tool(GOOGLE_SEARCH_SAIF_PROMPT)
 
         contents = []
@@ -51,22 +55,26 @@ def analysis_tool(gcs_uri: str):
         storage_client = storage.Client()
         bucket_name = gcs_uri.replace("gs://", "").strip("/")
         bucket = storage_client.bucket(bucket_name)        
-        LOGGER.info(f"Listing files in bucket '{bucket_name}'.")
-        blobs = bucket.list_blobs()
+        LOGGER.debug(f"Listing files in bucket '{bucket_name}'.")
+        blobs = list(bucket.list_blobs())
 
         # Construct the prompt with documents and their names
         contents.append(types.Part.from_text(text=DISCOVERY_TOOL_QUERY_PROMPT))
 
+        file_count = 0
         for blob in blobs:
             file_uri = f"gs://{bucket_name}/{blob.name}"
             file_name = blob.name
-            LOGGER.info(f"Adding file '{file_name}' from {file_uri} to analysis contents.")
+            LOGGER.debug(f"Adding file '{file_name}' from {file_uri} to analysis contents.")
             
             # Provide the file name as context for the LLM
             contents.append(types.Part.from_text(text=f"\nDocument name: {file_name}"))
             contents.append(types.Part.from_uri(file_uri=file_uri, mime_type=None))
+            file_count += 1
 
         contents.append(types.Part.from_text(text=f"LATEST SAIF RECOMMENDATIONS:\n{saif_recommendations}"))
+
+        emit_progress(f"🧠 [2/2] Auditing {file_count} design document(s) against SAIF framework with Gemini...")
 
         client = genai.Client(
             vertexai=True,
@@ -81,7 +89,7 @@ def analysis_tool(gcs_uri: str):
                 temperature=0.1,
             ),
         )
-        LOGGER.info(response)
+        LOGGER.debug("Received analysis response from Gemini.")
         return response.text
     except Exception as e:
         message = f"An exception occurred while calling analysis_tool: {e}"
