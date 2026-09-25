@@ -37,7 +37,7 @@ class TestEvalScorer(unittest.TestCase):
             "### 3. [🔴 Critical] `GCP_SAIF_LB_NO_CLOUD_ARMOR`\n"
             "`ai-gateway-backend` lacks Cloud Armor WAF securityPolicy.\n"
             "### 4. [🟠 High] `GCP_SAIF_SA_USER_MANAGED_KEY`\n"
-            "`sa@ale-test-network.iam.gserviceaccount.com` uses static USER_MANAGED key instead of Workload Identity.\n"
+            "`sa@gcp-project.iam.gserviceaccount.com` uses static USER_MANAGED key instead of Workload Identity.\n"
             "### 5. [🟠 High] `GCP_SAIF_MODEL_ARMOR_NOT_CONFIGURED`\n"
             "No Model Armor guardrail floorSettings configured.\n"
             "### 6. [🔴 Critical] `SAIF_PILLAR3_RAG_UNFILTERED_SEARCH`\n"

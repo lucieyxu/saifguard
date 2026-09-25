@@ -54,11 +54,11 @@ Once installed in your workspace, invoke the skill directly in your IDE chat win
 #### Example A: Audit a Live GCP Project (+ Cloud-to-Code Drift)
 First, ensure your terminal session is authenticated (`gcloud auth login`), then ask in chat:
 ```text
-@saifguard audit my GCP project "ale-test-network" and generate SAIF_AUDIT_REPORT.md
+@saifguard audit my GCP project "gcp-project" and generate SAIF_AUDIT_REPORT.md
 ```
 *or use the shorthand command:*
 ```text
-/saifguard gcp ale-test-network
+/saifguard gcp gcp-project
 ```
 **What happens:**
 1. Runs [`gcp_scan.py`](src/saifguard/skills/saifguard/scripts/gcp_scan.py) against Cloud Asset Inventory (`search-all-resources` & `search-all-iam-policies`) and `modelarmor.googleapis.com`.
@@ -98,11 +98,11 @@ You can run SAIFGuard from any terminal or CI/CD pipeline via [`src/saifguard/cl
 python3 src/saifguard/cli.py scan --dir . --output SAIF_AUDIT_REPORT.md
 
 # 2. Scan a live GCP project deterministically and output SAIF_AUDIT_REPORT.md
-python3 src/saifguard/cli.py scan --gcp-project ale-test-network --output SAIF_AUDIT_REPORT.md
+python3 src/saifguard/cli.py scan --gcp-project gcp-project --output SAIF_AUDIT_REPORT.md
 
 # 3. Export SARIF 2.1.0 for GitHub Advanced Security / CodeQL integration
 python3 src/saifguard/cli.py scan --dir . --format sarif --output results.sarif
-python3 src/saifguard/cli.py scan --gcp-project ale-test-network --format sarif --output gcp-results.sarif
+python3 src/saifguard/cli.py scan --gcp-project gcp-project --format sarif --output gcp-results.sarif
 
 # 4. Scan local Terraform with a compiled Terraform plan JSON (terraform show -json plan.out > plan.json)
 python3 src/saifguard/skills/saifguard/scripts/fast_scan.py . --tf-plan plan.json --format markdown
@@ -112,7 +112,7 @@ python3 src/saifguard/skills/saifguard/scripts/fast_scan.py . --tf-plan plan.jso
 Runs `fast_scan.py` / `gcp_scan.py`, compresses payloads by 70%–95%, and invokes the standalone ADK Agent (`MODEL` in [`src/saifguard/config.py`](src/saifguard/config.py)):
 ```bash
 # Hybrid audit on a live GCP project + local repo drift detection
-python3 src/saifguard/cli.py audit --gcp-project ale-test-network --dir . --output SAIF_AUDIT_REPORT.md
+python3 src/saifguard/cli.py audit --gcp-project gcp-project --dir . --output SAIF_AUDIT_REPORT.md
 ```
 
 #### C. Git Pre-Commit Security Gate

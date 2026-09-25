@@ -1,6 +1,6 @@
 [
   {
-    "name": "//compute.googleapis.com/projects/ale-test-network/global/backendServices/ai-gateway-backend",
+    "name": "//compute.googleapis.com/projects/gcp-project/global/backendServices/ai-gateway-backend",
     "assetType": "compute.googleapis.com/BackendService",
     "location": "global",
     "versionedResources": [
@@ -10,7 +10,7 @@
           "id": "111111",
           "name": "ai-gateway-backend",
           "loadBalancingScheme": "EXTERNAL_MANAGED",
-          "selfLink": "https://www.googleapis.com/compute/v1/projects/ale-test-network/global/backendServices/ai-gateway-backend",
+          "selfLink": "https://www.googleapis.com/compute/v1/projects/gcp-project/global/backendServices/ai-gateway-backend",
           "etag": "abcdef123456"
         }
       }
@@ -35,7 +35,7 @@
     ]
   },
   {
-    "name": "//sqladmin.googleapis.com/projects/ale-test-network/instances/rag-pgvector-db",
+    "name": "//sqladmin.googleapis.com/projects/gcp-project/instances/rag-pgvector-db",
     "assetType": "sqladmin.googleapis.com/Instance",
     "location": "europe-west1",
     "versionedResources": [
@@ -49,35 +49,35 @@
     ]
   },
   {
-    "name": "//iam.googleapis.com/projects/ale-test-network/serviceAccounts/sa@ale-test-network.iam.gserviceaccount.com/keys/1234567890abcdef",
+    "name": "//iam.googleapis.com/projects/gcp-project/serviceAccounts/sa@gcp-project.iam.gserviceaccount.com/keys/1234567890abcdef",
     "assetType": "iam.googleapis.com/ServiceAccountKey",
     "location": "global",
     "versionedResources": [
       {
         "version": "v1",
         "resource": {
-          "name": "projects/ale-test-network/serviceAccounts/sa@ale-test-network.iam.gserviceaccount.com/keys/1234567890abcdef",
+          "name": "projects/gcp-project/serviceAccounts/sa@gcp-project.iam.gserviceaccount.com/keys/1234567890abcdef",
           "keyType": "USER_MANAGED"
         }
       }
     ]
   },
   {
-    "name": "//aiplatform.googleapis.com/projects/ale-test-network/locations/us-central1/endpoints/987654321",
+    "name": "//aiplatform.googleapis.com/projects/gcp-project/locations/us-central1/endpoints/987654321",
     "assetType": "aiplatform.googleapis.com/Endpoint",
     "location": "us-central1",
     "versionedResources": [
       {
         "version": "v1",
         "resource": {
-          "name": "projects/ale-test-network/locations/us-central1/endpoints/987654321",
+          "name": "projects/gcp-project/locations/us-central1/endpoints/987654321",
           "displayName": "gemini-rag-endpoint"
         }
       }
     ]
   },
   {
-    "name": "//run.googleapis.com/projects/ale-test-network/locations/europe-west1/revisions/noisy-rev-001",
+    "name": "//run.googleapis.com/projects/gcp-project/locations/europe-west1/revisions/noisy-rev-001",
     "assetType": "run.googleapis.com/Revision",
     "location": "europe-west1",
     "versionedResources": [
@@ -97,7 +97,7 @@
     ]
   },
   {
-    "name": "//compute.googleapis.com/projects/ale-test-network/global/routes/default-route-e3b0c44298fc1c149",
+    "name": "//compute.googleapis.com/projects/gcp-project/global/routes/default-route-e3b0c44298fc1c149",
     "assetType": "compute.googleapis.com/Route",
     "location": "global",
     "versionedResources": [

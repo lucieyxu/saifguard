@@ -20,7 +20,7 @@ FIXTURES_DIR = REPO_ROOT / "tests" / "fixtures"
 class TestGCPProjectScanner(unittest.TestCase):
     def test_gcp_scan_rules_and_compression(self):
         result = scan_gcp_project(
-            project_id="ale-test-network",
+            project_id="gcp-project",
             mock_assets_path=str(FIXTURES_DIR / "mock_gcp_assets.json"),
             mock_iam_path=str(FIXTURES_DIR / "mock_iam_policies.json"),
         )
@@ -47,7 +47,7 @@ class TestGCPProjectScanner(unittest.TestCase):
 
         # Verify markdown report rendering
         md = format_gcp_markdown_report(result)
-        self.assertIn("# 🛡️ SAIFGuard Security Audit Report — GCP Project `ale-test-network`", md)
+        self.assertIn("# 🛡️ SAIFGuard Security Audit Report — GCP Project `gcp-project`", md)
         self.assertIn("Executive Summary Scorecard", md)
         self.assertIn("Audit Coverage & API Visibility", md)
 

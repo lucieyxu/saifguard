@@ -1,13 +1,13 @@
 [
   {
-    "resource": "//cloudresourcemanager.googleapis.com/projects/ale-test-network",
+    "resource": "//cloudresourcemanager.googleapis.com/projects/gcp-project",
     "policy": {
       "bindings": [
         {
           "role": "roles/owner",
           "members": [
             "user:admin@example.com",
-            "serviceAccount:overprivileged-sa@ale-test-network.iam.gserviceaccount.com"
+            "serviceAccount:overprivileged-sa@gcp-project.iam.gserviceaccount.com"
           ]
         },
         {

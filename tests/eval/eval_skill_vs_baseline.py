@@ -115,8 +115,8 @@ FIXTURE_GROUND_TRUTH: list[GroundTruthItem] = [
     ),
     GroundTruthItem(
         rule_id="GCP_SAIF_SA_USER_MANAGED_KEY",
-        description="Service account 'sa@ale-test-network.iam.gserviceaccount.com' uses a static USER_MANAGED key",
-        required_resource_or_file="sa@ale-test-network.iam.gserviceaccount.com",
+        description="Service account 'sa@gcp-project.iam.gserviceaccount.com' uses a static USER_MANAGED key",
+        required_resource_or_file="sa@gcp-project.iam.gserviceaccount.com",
         concept_keywords=["user_managed", "key", "workload identity", "adc"],
     ),
     GroundTruthItem(
