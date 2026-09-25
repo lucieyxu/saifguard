@@ -2,8 +2,12 @@ import functools
 import logging
 import traceback
 
-from google import genai
-from google.genai import types
+try:
+    from google import genai
+    from google.genai import types
+except ImportError:
+    genai = None
+    types = None
 from saifguard.config import MODEL, PROJECT_ID, REGION, VERTEX_LOCATION
 
 LOGGER = logging.getLogger(__name__)
