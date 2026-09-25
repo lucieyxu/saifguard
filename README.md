@@ -1,6 +1,6 @@
 # SAIFGuard
 
-TLDR; SAIFGuard is an ADK-based agent with a Mesop UI and looker dashboard to speed up security reviews and allow AI applications to go to production faster.
+TLDR; SAIFGuard is a unified AI Security Auditor (IDE Skill, CLI, and ADK Agent with Mesop UI) that audits local code, Terraform IaC, and live GCP projects against Google's Secure AI Framework (SAIF) and OWASP LLM Top 10, generating actionable `SAIF_AUDIT_REPORT.md` deliverables.
 
 ## Context
 ### The Problem: The AI Deployment Bottlenecks
@@ -21,13 +21,120 @@ SAIFGuard provides a comprehensive security overview by analyzing your entire AI
 * Enhance Security: Achieve full compliance with Google's Secure AI Framework, systematically mitigating unique AI risks like prompt injection, data poisoning, and model evasion.
 * Empower Teams: Provide developers, cloud architects, and security architects with immediate, actionable feedback through an interactive dashboard and chat interface, making security an accessible and integrated part of the development process.
 
+---
 
+## SAIFGuard IDE Skill & CLI (For FDEs & Developers)
+
+Audit local application code (Python, Go, JS/TS), Terraform IaC (`*.tf`, `*.tfvars`), Dockerfiles, RAG pipelines, agentic tools, architecture design documents, and **live Google Cloud Platform (GCP) projects** directly inside your IDE (Antigravity, Cursor, Windsurf, Claude Code) or terminal against the **Google Secure AI Framework (SAIF)** and **OWASP Top 10 for LLMs**.
+
+All audits generate a standardized, customer-ready [`SAIF_AUDIT_REPORT.md`](SAIF_AUDIT_REPORT.md) deliverable containing an Executive 6-Pillar Scorecard, Audit Coverage Map, clickable Google Cloud Console deep-links, production-ready GA `gcloud` remediation commands, unified git diffs, and a CISO sign-off block.
+
+---
+
+### 1. Install the Skill into Any Workspace
+
+**From this repository (Zero dependencies required):**
+```bash
+# Install into the current repository (.agents/skills/saifguard/):
+python3 src/saifguard/cli.py init
+
+# Install into another project repository:
+python3 src/saifguard/cli.py init --target /path/to/your/project
+
+# Or via Node.js CLI:
+node cli/bin/saifguard.js init --target /path/to/your/project
+```
+
+---
+
+### 2. IDE Chat Examples (`/saifguard` & `@saifguard`)
+
+Once installed in your workspace, invoke the skill directly in your IDE chat window (uses your IDE's built-in LLM + local deterministic Python scanners):
+
+#### Example A: Audit a Live GCP Project (+ Cloud-to-Code Drift)
+First, ensure your terminal session is authenticated (`gcloud auth login`), then ask in chat:
+```text
+@saifguard audit my GCP project "ale-test-network" and generate SAIF_AUDIT_REPORT.md
+```
+*or use the shorthand command:*
+```text
+/saifguard gcp ale-test-network
+```
+**What happens:**
+1. Runs [`gcp_scan.py`](src/saifguard/skills/saifguard/scripts/gcp_scan.py) against Cloud Asset Inventory (`search-all-resources` & `search-all-iam-policies`) and `modelarmor.googleapis.com`.
+2. Evaluates 6 deterministic cloud rules (`GCP_CLOUD_ARMOR_MISSING`, `GCP_CMEK_MISSING`, `GCP_IAM_PRIMITIVE_OR_PUBLIC`, `GCP_SA_USER_KEY_EXPOSED`, `GCP_VERTEX_PUBLIC_ENDPOINT`, `GCP_MODEL_ARMOR_MISSING`).
+3. Gracefully handles `403 PERMISSION_DENIED` or disabled APIs by generating an **Audit Coverage & API Visibility** table (`GCP_AUDIT_VISIBILITY_GAP`).
+4. Cross-checks live GCP assets against local `*.tf` and `*.py` files to detect **Shadow AI / ClickOps drift** and writes [`SAIF_AUDIT_REPORT.md`](SAIF_AUDIT_REPORT.md).
+
+#### Example B: Audit Local Application Code, RAG & Agentic Tools
+```text
+/saifguard
+```
+*or scoped to specific domains:*
+```text
+/saifguard iac     # Audit only Terraform (*.tf, variables.tf, *.tfvars), KMS CMEK, Cloud Armor, VPC-SC, and IAM
+/saifguard rag     # Audit only RAG & Vector Search pipelines (tenant isolation filters, document ACLs, Cloud DLP)
+/saifguard agent   # Audit only Agent tools (@tool Pydantic schemas, HITL approvals, max_iterations loop limits)
+```
+
+#### Example C: Audit an Architecture / Design Document (Markdown, PDF, or Google Docs)
+```text
+# Local Markdown or PDF (inspects both text and embedded architecture diagrams):
+@saifguard audit docs/architecture_design.pdf against Google SAIF principles
+
+# Google Docs URL (uses `gcloud auth login --enable-gdrive-access` for private corporate docs):
+@saifguard audit https://docs.google.com/document/d/1AbCdEfGhIjKlMnOpQrStUvWxYz/edit
+```
+
+---
+
+### 3. Terminal CLI & CI/CD Examples (`saifguard scan` & `saifguard audit`)
+
+You can run SAIFGuard from any terminal or CI/CD pipeline via [`src/saifguard/cli.py`](src/saifguard/cli.py) (or `node cli/bin/saifguard.js`):
+
+#### A. Deterministic Fast Scans (100% Deterministic, Zero LLM Calls)
+```bash
+# 1. Scan local repository (Python AST, Terraform variables/locals, Dockerfile) and output Markdown report
+python3 src/saifguard/cli.py scan --dir . --output SAIF_AUDIT_REPORT.md
+
+# 2. Scan a live GCP project deterministically and output SAIF_AUDIT_REPORT.md
+python3 src/saifguard/cli.py scan --gcp-project ale-test-network --output SAIF_AUDIT_REPORT.md
+
+# 3. Export SARIF 2.1.0 for GitHub Advanced Security / CodeQL integration
+python3 src/saifguard/cli.py scan --dir . --format sarif --output results.sarif
+python3 src/saifguard/cli.py scan --gcp-project ale-test-network --format sarif --output gcp-results.sarif
+
+# 4. Scan local Terraform with a compiled Terraform plan JSON (terraform show -json plan.out > plan.json)
+python3 src/saifguard/skills/saifguard/scripts/fast_scan.py . --tf-plan plan.json --format markdown
+```
+
+#### B. Full Hybrid AI Audit (Deterministic Scanners + ADK Agent Reasoning)
+Runs `fast_scan.py` / `gcp_scan.py`, compresses payloads by 70%–95%, and invokes the standalone ADK Agent (`MODEL` in [`src/saifguard/config.py`](src/saifguard/config.py)):
+```bash
+# Hybrid audit on a live GCP project + local repo drift detection
+python3 src/saifguard/cli.py audit --gcp-project ale-test-network --dir . --output SAIF_AUDIT_REPORT.md
+```
+
+#### C. Git Pre-Commit Security Gate
+Prevent developers from committing Critical/High SAIF violations (hardcoded API keys, missing CMEK, unvalidated agent tools):
+```bash
+python3 src/saifguard/cli.py install-hook
+```
+
+---
+
+### 4. Running the Offline Test Suite
+
+The repository includes a 29-test offline suite in [`tests/`](tests/) covering `gcp_scan.py`, Terraform variable resolution (`var.*` / `.tfvars`), context budgeting, and dual-mode report delivery:
+```bash
+python3 -m unittest discover -s tests -p "test_*.py" -v
+```
+
+---
 
 ## Local Setup
 
-Configure environment constants in `src/saifguard/config.py`.
-
-To publish dashboard metrics during scans, set `GENERATE_DASHBOARD=True`.
+Configure environment constants in `src/saifguard/config.py` (such as `MODEL` and `DEFAULT_REPORT_FILENAME="SAIF_AUDIT_REPORT.md"`).
 
 ### Run Backend (FastAPI)
 ```bash
@@ -286,46 +393,20 @@ gcloud projects add-iam-policy-binding saifguard \
 
 Note that some Gemini models are only available in the `global` multi-region (for example Gemiin 3.6 flash as of July 2026).
 
-#### 📊 BigQuery Permissions for Dashboarding
-
-When the GCP Project Scan tool runs, it aggregates all discovered security vulnerabilities and publishes them directly to a BigQuery table (defaulting to `dashboard.vulnerabilities` in your BQ project).
-
-To allow the SAIFGuard service account (`saifguard-sa@saifguard.iam.gserviceaccount.com`) to run queries and write this compliance data, grant it both the **BigQuery Data Editor** (`roles/bigquery.dataEditor`) and **BigQuery Job User** (`roles/bigquery.jobUser`) roles on your BigQuery project:
-
-```bash
-# Grant BigQuery Data Editor to write tables
-gcloud projects add-iam-policy-binding BQ_PROJECT_ID \
-  --member="serviceAccount:saifguard-sa@saifguard.iam.gserviceaccount.com" \
-  --role="roles/bigquery.dataEditor"
-
-# Grant BigQuery Job User to execute query jobs
-gcloud projects add-iam-policy-binding BQ_PROJECT_ID \
-  --member="serviceAccount:saifguard-sa@saifguard.iam.gserviceaccount.com" \
-  --role="roles/bigquery.jobUser"
-```
-
 ---
 
-## 📈 How to Access & Build the Data Studio Dashboard
+## 📄 Dual-Mode Markdown Report Delivery (`SAIF_AUDIT_REPORT.md`)
 
-All recommendations generated by SAIFGuard are stored as structured rows in BigQuery. You can open the pre-configured Data Studio dashboard template or build a custom report in minutes:
+SAIFGuard automatically adapts how it delivers the generated [`SAIF_AUDIT_REPORT.md`](SAIF_AUDIT_REPORT.md) based on the runtime environment (`src/saifguard/report_tool.py`):
 
-### Option 1: Open Pre-Configured Data Studio Template Link
-Click the direct auto-provisioning template link:
-[Open SAIFGuard Data Studio Dashboard Template](https://lookerstudio.google.com/reporting/create?c.reportId=08795748-d7d4-44a0-b6f7-272475314ba8&ds.ds0.connector=bigquery&ds.ds0.type=TABLE&ds.ds0.projectId=YOUR_PROJECT_ID&ds.ds0.datasetId=dashboard&ds.ds0.tableId=vulnerabilities)
-
-### Option 2: Connect BigQuery to Data Studio Manually
-1. **Open Data Studio:** Navigate to [Data Studio](https://datastudio.google.com/).
-2. **Create a Data Source:** Click **Create > Data Source** in the top-left corner.
-3. **Select the BigQuery Connector:** Under the Google Connectors catalog, select **BigQuery**.
-4. **Select Your Table:**
-   * Click **My Projects**.
-   * Select your BQ billing project ID (e.g., `saifguard`).
-   * Select the dataset (e.g., `dashboard`).
-   * Select the table (e.g., `vulnerabilities`).
-5. **Connect & Design:** Click **Connect** in the top-right.
-   * Data Studio will pull all schemas from BigQuery. You will see fields like `name`, `description`, `severity`, `category`, `remediation`, and the direct Google Cloud Console `url` link for each resource.
-   * Build scorecards, severity charts, and clickable compliance tables to distribute compliance tracking across your team!
+1. **Local CLI & IDE Mode**:
+   - Writes `SAIF_AUDIT_REPORT.md` directly to your local workspace directory.
+2. **Stateless Cloud Run / Multi-User Server Mode (`K_SERVICE` or `SAIFGUARD_RUNTIME=server`)**:
+   - Stores each generated report in session-isolated memory (`store_session_report(session_id, report_md)`) to prevent multi-user file collisions across concurrent requests.
+   - Download the Markdown report for any session via the FastAPI endpoint:
+     ```bash
+     curl -X GET "https://YOUR_CLOUD_RUN_URL/report/{session_id}" -o SAIF_AUDIT_REPORT.md
+     ```
 
 ---
 

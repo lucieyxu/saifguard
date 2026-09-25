@@ -1,0 +1,22 @@
+[
+  {
+    "resource": "//cloudresourcemanager.googleapis.com/projects/ale-test-network",
+    "policy": {
+      "bindings": [
+        {
+          "role": "roles/owner",
+          "members": [
+            "user:admin@example.com",
+            "serviceAccount:overprivileged-sa@ale-test-network.iam.gserviceaccount.com"
+          ]
+        },
+        {
+          "role": "roles/storage.objectViewer",
+          "members": [
+            "allUsers"
+          ]
+        }
+      ]
+    }
+  }
+]
