@@ -1,0 +1,113 @@
+[
+  {
+    "name": "//compute.googleapis.com/projects/gcp-project/global/backendServices/ai-gateway-backend",
+    "assetType": "compute.googleapis.com/BackendService",
+    "location": "global",
+    "versionedResources": [
+      {
+        "version": "v1",
+        "resource": {
+          "id": "111111",
+          "name": "ai-gateway-backend",
+          "loadBalancingScheme": "EXTERNAL_MANAGED",
+          "selfLink": "https://www.googleapis.com/compute/v1/projects/gcp-project/global/backendServices/ai-gateway-backend",
+          "etag": "abcdef123456"
+        }
+      }
+    ]
+  },
+  {
+    "name": "//storage.googleapis.com/vertex-rag-embeddings-prod",
+    "assetType": "storage.googleapis.com/Bucket",
+    "location": "US-CENTRAL1",
+    "versionedResources": [
+      {
+        "version": "v1",
+        "resource": {
+          "id": "vertex-rag-embeddings-prod",
+          "name": "vertex-rag-embeddings-prod",
+          "location": "US-CENTRAL1",
+          "encryption": {},
+          "selfLink": "https://www.googleapis.com/storage/v1/b/vertex-rag-embeddings-prod",
+          "etag": "CAE="
+        }
+      }
+    ]
+  },
+  {
+    "name": "//sqladmin.googleapis.com/projects/gcp-project/instances/rag-pgvector-db",
+    "assetType": "sqladmin.googleapis.com/Instance",
+    "location": "europe-west1",
+    "versionedResources": [
+      {
+        "version": "v1beta4",
+        "resource": {
+          "name": "rag-pgvector-db",
+          "diskEncryptionConfiguration": {}
+        }
+      }
+    ]
+  },
+  {
+    "name": "//iam.googleapis.com/projects/gcp-project/serviceAccounts/sa@gcp-project.iam.gserviceaccount.com/keys/1234567890abcdef",
+    "assetType": "iam.googleapis.com/ServiceAccountKey",
+    "location": "global",
+    "versionedResources": [
+      {
+        "version": "v1",
+        "resource": {
+          "name": "projects/gcp-project/serviceAccounts/sa@gcp-project.iam.gserviceaccount.com/keys/1234567890abcdef",
+          "keyType": "USER_MANAGED"
+        }
+      }
+    ]
+  },
+  {
+    "name": "//aiplatform.googleapis.com/projects/gcp-project/locations/us-central1/endpoints/987654321",
+    "assetType": "aiplatform.googleapis.com/Endpoint",
+    "location": "us-central1",
+    "versionedResources": [
+      {
+        "version": "v1",
+        "resource": {
+          "name": "projects/gcp-project/locations/us-central1/endpoints/987654321",
+          "displayName": "gemini-rag-endpoint"
+        }
+      }
+    ]
+  },
+  {
+    "name": "//run.googleapis.com/projects/gcp-project/locations/europe-west1/revisions/noisy-rev-001",
+    "assetType": "run.googleapis.com/Revision",
+    "location": "europe-west1",
+    "versionedResources": [
+      {
+        "version": "v1",
+        "resource": {
+          "metadata": {
+            "annotations": {
+              "autoscaling.knative.dev/maxScale": "100",
+              "run.googleapis.com/client-name": "gcloud",
+              "serving.knative.dev/creator": "deployer@example.com",
+              "extraPadding": "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+            }
+          }
+        }
+      }
+    ]
+  },
+  {
+    "name": "//compute.googleapis.com/projects/gcp-project/global/routes/default-route-e3b0c44298fc1c149",
+    "assetType": "compute.googleapis.com/Route",
+    "location": "global",
+    "versionedResources": [
+      {
+        "version": "v1",
+        "resource": {
+          "name": "default-route-e3b0c44298fc1c149",
+          "description": "Default route to the internet created automatically by GCP VPC."
+        }
+      }
+    ]
+  }
+]

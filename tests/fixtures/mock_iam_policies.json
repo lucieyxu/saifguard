@@ -1,0 +1,22 @@
+[
+  {
+    "resource": "//cloudresourcemanager.googleapis.com/projects/gcp-project",
+    "policy": {
+      "bindings": [
+        {
+          "role": "roles/owner",
+          "members": [
+            "user:admin@example.com",
+            "serviceAccount:overprivileged-sa@gcp-project.iam.gserviceaccount.com"
+          ]
+        },
+        {
+          "role": "roles/storage.objectViewer",
+          "members": [
+            "allUsers"
+          ]
+        }
+      ]
+    }
+  }
+]

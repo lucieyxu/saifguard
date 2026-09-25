@@ -4,11 +4,8 @@ PROJECT_ID = os.environ.get("PROJECT_ID") or os.environ.get("GOOGLE_CLOUD_PROJEC
 REGION = os.environ.get("REGION") or os.environ.get("GOOGLE_CLOUD_LOCATION", "europe-west1")
 VERTEX_LOCATION = os.environ.get("VERTEX_LOCATION") or os.environ.get("LOCATION", "global")
 MODEL = os.environ.get("MODEL", "gemini-3.7-flash")
-GENERATE_DASHBOARD = os.environ.get("GENERATE_DASHBOARD", "True").lower() == "true"
 DEBUG_MODE = os.environ.get("DEBUG_MODE", "False").lower() in ("true", "1")
-DASHBOARD_BQ_PROJECT = os.environ.get("DASHBOARD_BQ_PROJECT") or PROJECT_ID
-DASHBOARD_BQ_LOCATION = os.environ.get("DASHBOARD_BQ_LOCATION", "dashboard.vulnerabilities")
-DATA_STUDIO_TEMPLATE_REPORT_ID = os.environ.get("DATA_STUDIO_TEMPLATE_REPORT_ID") or os.environ.get("LOOKER_TEMPLATE_REPORT_ID", "08795748-d7d4-44a0-b6f7-272475314ba8")
+DEFAULT_REPORT_FILENAME = os.environ.get("DEFAULT_REPORT_FILENAME", "SAIF_AUDIT_REPORT.md")
 TIMEZONE = os.environ.get("TZ") or os.environ.get("TIMEZONE", "Europe/Paris")
 # Agent Runtime instance ID for Agent Platform sessions
 AGENT_RUNTIME_ID = os.environ.get("AGENT_RUNTIME_ID")

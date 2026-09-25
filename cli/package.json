@@ -1,0 +1,33 @@
+{
+  "name": "@google/saifguard",
+  "version": "0.2.0",
+  "description": "Google SAIF & OWASP AI Security IDE Skill and CLI Scanner",
+  "main": "bin/saifguard.js",
+  "bin": {
+    "saifguard": "./bin/saifguard.js"
+  },
+  "files": [
+    "bin/",
+    "skills/"
+  ],
+  "scripts": {
+    "prepack": "node -e \"const fs=require('fs'),path=require('path');const src=path.resolve(__dirname,'../src/saifguard/skills/saifguard'),dest=path.resolve(__dirname,'skills/saifguard');if(fs.existsSync(src)){fs.cpSync(src,dest,{recursive:true});}\""
+  },
+  "keywords": [
+    "saif",
+    "google-cloud",
+    "vertex-ai",
+    "security",
+    "llm-security",
+    "owasp-llm",
+    "ide-skill",
+    "antigravity",
+    "cursor",
+    "claude-code"
+  ],
+  "author": "Google Cloud FDE Team",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

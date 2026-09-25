@@ -1,7 +1,7 @@
 [project]
 name = "saifguard"
-version = "0.1.0"
-description = ""
+version = "0.2.0"
+description = "Google SAIF & OWASP LLM AI Security Auditor (IDE Skill, CLI & ADK Agent)"
 authors = [
     {name = "luciexu"},
     {name = "legranda"}
@@ -10,18 +10,29 @@ readme = "README.md"
 requires-python = ">=3.11"
 
 dependencies = [
-    "fastapi (>=0.116.1)",
-    "uvicorn[standard] (>=0.35.0)",
     "pydantic (>=2.11.7)",
     "google-cloud-aiplatform (>=1.110.0)",
     "google-genai (>=1.31.0)",
     "google-adk (>=2.5.0,<3.0.0)",
     "google-cloud-asset (>=3.30.1)",
-    "mesop (>=1.1.0)",
-    "pandas-gbq (>=0.29.2)",
-    "pandas (>=2.3.2)"
+    "fastapi (>=0.116.1)",
+    "uvicorn[standard] (>=0.35.0)",
+    "mesop (>=1.1.0)"
 ]
 
+[project.optional-dependencies]
+server = [
+    "fastapi (>=0.116.1)",
+    "uvicorn[standard] (>=0.35.0)",
+    "mesop (>=1.1.0)"
+]
+
+[project.scripts]
+saifguard = "saifguard.cli:main"
+
+[tool.poetry]
+packages = [{include = "saifguard"}]
+include = ["saifguard/skills/**/*"]
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
