@@ -378,6 +378,16 @@ class GCPProjectScanner:
             self.coverage["Model Armor Guardrails API"] = "⚠️ Skipped (No gcloud auth token)"
             return
 
+        import ssl
+
+        ssl_ctx = None
+        try:
+            ssl_ctx = ssl.create_default_context()
+            if Path("/etc/ssl/cert.pem").is_file():
+                ssl_ctx.load_verify_locations(cafile="/etc/ssl/cert.pem")
+        except Exception:
+            ssl_ctx = None
+
         headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
         locations = ["global", "us-central1", "europe-west1"]
         templates = []
@@ -388,7 +398,11 @@ class GCPProjectScanner:
             t_url = f"https://modelarmor.googleapis.com/v1/projects/{self.project_id}/locations/{loc}/templates"
             try:
                 req = urllib.request.Request(t_url, headers=headers)
-                with urllib.request.urlopen(req, timeout=5) as resp:
+                try:
+                    resp_cm = urllib.request.urlopen(req, timeout=5, context=ssl_ctx) if ssl_ctx else urllib.request.urlopen(req, timeout=5)
+                except TypeError:
+                    resp_cm = urllib.request.urlopen(req, timeout=5)
+                with resp_cm as resp:
                     if resp.status == 200:
                         any_200 = True
                         data = json.loads(resp.read().decode("utf-8"))
@@ -402,7 +416,11 @@ class GCPProjectScanner:
             f_url = f"https://modelarmor.googleapis.com/v1/projects/{self.project_id}/locations/{loc}/floorSettings"
             try:
                 req = urllib.request.Request(f_url, headers=headers)
-                with urllib.request.urlopen(req, timeout=5) as resp:
+                try:
+                    resp_cm = urllib.request.urlopen(req, timeout=5, context=ssl_ctx) if ssl_ctx else urllib.request.urlopen(req, timeout=5)
+                except TypeError:
+                    resp_cm = urllib.request.urlopen(req, timeout=5)
+                with resp_cm as resp:
                     if resp.status == 200:
                         any_200 = True
                         data = json.loads(resp.read().decode("utf-8"))

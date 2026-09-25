@@ -33,10 +33,12 @@ Check `.saifguardignore` in the workspace root for any customer-accepted exclusi
    *(If the workspace also contains `.tf` or `.py` files, run `fast_scan.py` as well so you can detect **Cloud-to-Code Drift** between live GCP assets and local code.)*
 3. **Design Document Scope (`/saifguard <path_or_url>`)**:
    - **Local Markdown (`.md`), PDF (`.pdf`), or Diagram (`.png`/`.jpg`)**: Read the file directly using `view_file` (which natively supports binary PDFs and images).
-   - **Google Docs URL (`https://docs.google.com/document/d/...`)**: Export the document using [`scripts/fetch_doc.py`](scripts/fetch_doc.py):
-     ```bash
-     python3 <SKILL_DIR>/scripts/fetch_doc.py "<google_docs_url>"
-     ```
+   - **Google Docs URL (`https://docs.google.com/document/d/<DOC_ID>/...`)**:
+     1. **MCP Server (Preferred)**: If a Google Drive or Google Docs MCP tool (e.g., `gdrive`, `google-docs`, or `google-workspace` MCP server) is available in your active toolset, invoke the MCP tool directly with `<DOC_ID>` or the document URL.
+     2. **Script Fallback**: If no Google Drive/Docs MCP tool is available in the session, export the document using [`scripts/fetch_doc.py`](scripts/fetch_doc.py):
+        ```bash
+        python3 <SKILL_DIR>/scripts/fetch_doc.py "<google_docs_url>"
+        ```
 
 ---
 
