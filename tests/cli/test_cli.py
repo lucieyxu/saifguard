@@ -76,6 +76,30 @@ class TestSAIFGuardCLI(unittest.TestCase):
         self.assertTrue(hook_file.is_file())
         self.assertTrue(os.access(hook_file, os.X_OK))
 
+    def test_init_with_target_flag_and_copilot_idempotency(self):
+        sub_target = Path(self.test_dir) / "custom_blank_project"
+        res1 = subprocess.run(
+            [sys.executable, str(CLI_PY), "init", "--target", str(sub_target), "--copilot"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(res1.returncode, 0)
+        self.assertTrue((sub_target / ".agents" / "skills" / "saifguard" / "SKILL.md").is_file())
+
+        copilot_md = sub_target / ".github" / "copilot-instructions.md"
+        self.assertTrue(copilot_md.is_file())
+        first_len = len(copilot_md.read_text(encoding="utf-8"))
+
+        # Run a second time to verify idempotency (should not duplicate content)
+        res2 = subprocess.run(
+            [sys.executable, str(CLI_PY), "init", "--target", str(sub_target), "--copilot"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(res2.returncode, 0)
+        self.assertEqual(len(copilot_md.read_text(encoding="utf-8")), first_len)
+
 
 if __name__ == "__main__":
     unittest.main()
+
