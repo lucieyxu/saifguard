@@ -58,7 +58,8 @@ def cmd_init(args: argparse.Namespace) -> int:
         print("Available across all your Antigravity / Jetski workspaces.")
         return 0
 
-    target_dir = Path.cwd()
+    target_dir = Path(args.target).expanduser().resolve() if getattr(args, "target", None) else Path.cwd()
+    target_dir.mkdir(parents=True, exist_ok=True)
     print(f"Installing SAIFGuard skill into workspace: {target_dir}...")
 
     # 1. Antigravity / Jetski workspace path
@@ -67,13 +68,14 @@ def cmd_init(args: argparse.Namespace) -> int:
     print("  ✓ Installed Antigravity/Jetski skill: .agents/skills/saifguard/")
 
     skill_md = source_dir / "SKILL.md"
-    skill_content = skill_md.read_text(encoding="utf-8") if skill_md.is_file() else ""
+    raw_skill_content = skill_md.read_text(encoding="utf-8") if skill_md.is_file() else ""
+    resolved_skill_content = raw_skill_content.replace("<SKILL_DIR>", ".agents/skills/saifguard")
 
     # 2. Cursor detection
     if (target_dir / ".cursor").is_dir() or args.cursor:
         cursor_dir = target_dir / ".cursor" / "rules"
         cursor_dir.mkdir(parents=True, exist_ok=True)
-        cursor_rule = f"---\ndescription: Google SAIF and OWASP LLM security auditor\nglobs: **/*\nalwaysApply: false\n---\n\n{skill_content}\n"
+        cursor_rule = f"---\ndescription: Google SAIF and OWASP LLM security auditor\nglobs: **/*\nalwaysApply: false\n---\n\n{resolved_skill_content}\n"
         (cursor_dir / "saifguard.mdc").write_text(cursor_rule, encoding="utf-8")
         print("  ✓ Generated Cursor rule: .cursor/rules/saifguard.mdc")
 
@@ -81,17 +83,20 @@ def cmd_init(args: argparse.Namespace) -> int:
     if (target_dir / ".claude").is_dir() or args.claude:
         claude_dir = target_dir / ".claude" / "commands"
         claude_dir.mkdir(parents=True, exist_ok=True)
-        (claude_dir / "saifguard.md").write_text(skill_content, encoding="utf-8")
+        (claude_dir / "saifguard.md").write_text(resolved_skill_content, encoding="utf-8")
         print("  ✓ Generated Claude Code slash command: .claude/commands/saifguard.md")
 
-    # 4. GitHub Copilot detection
+    # 4. GitHub Copilot detection (idempotent update)
     if (target_dir / ".github").is_dir() or args.copilot:
         github_dir = target_dir / ".github"
         github_dir.mkdir(parents=True, exist_ok=True)
         copilot_file = github_dir / "copilot-instructions.md"
-        with open(copilot_file, "a", encoding="utf-8") as f:
-            f.write(f"\n\n## Google SAIF Security Guidelines\n{skill_content}\n")
-        print("  ✓ Appended to GitHub Copilot instructions: .github/copilot-instructions.md")
+        existing = copilot_file.read_text(encoding="utf-8") if copilot_file.is_file() else ""
+        marker = "## Google SAIF Security Guidelines"
+        if marker not in existing:
+            with open(copilot_file, "a", encoding="utf-8") as f:
+                f.write(f"\n\n{marker}\n{resolved_skill_content}\n")
+        print("  ✓ Configured GitHub Copilot instructions: .github/copilot-instructions.md")
 
     print("\n🎉 Successfully installed SAIFGuard!")
     print("Next steps:")
@@ -106,6 +111,8 @@ def cmd_scan(args: argparse.Namespace) -> int:
     skill_dir = get_canonical_skill_dir()
     if not skill_dir.is_dir():
         skill_dir = Path.cwd() / ".agents" / "skills" / "saifguard"
+
+    scan_target = getattr(args, "dir", None) or args.target or "."
 
     # GCP Project Scan Mode
     if args.gcp_project:
@@ -131,7 +138,7 @@ def cmd_scan(args: argparse.Namespace) -> int:
         print(f"Error: fast_scan.py not found at {fast_scan_script}", file=sys.stderr)
         return 1
 
-    cmd = [sys.executable, str(fast_scan_script), args.target, f"--format={args.format}"]
+    cmd = [sys.executable, str(fast_scan_script), scan_target, f"--format={args.format}"]
     if args.output:
         cmd.extend(["--output", args.output])
     if args.fail_on:
@@ -150,6 +157,7 @@ def cmd_scan(args: argparse.Namespace) -> int:
 def cmd_audit(args: argparse.Namespace) -> int:
     """Execute full hybrid (Deterministic + LLM) SAIF security audit."""
     output_file = args.output or "SAIF_AUDIT_REPORT.md"
+    audit_target = getattr(args, "dir", None) or args.target or "."
 
     # Ensure src/ is importable if running directly from repo
     src_parent = Path(__file__).resolve().parent.parent
@@ -162,20 +170,26 @@ def cmd_audit(args: argparse.Namespace) -> int:
         print(f"🛡️  Running SAIFGuard Hybrid Audit on GCP Project '{args.gcp_project}'...")
         report = gcp_project_tool(
             gcp_project_id=args.gcp_project,
-            local_repo_path=args.target,
+            local_repo_path=audit_target,
             output_path=output_file,
         )
+        if report.startswith(("Error", "An exception occurred")):
+            print(report, file=sys.stderr)
+            return 1
         print(f"\n✓ Audit complete! Full report saved to: {output_file}")
         return 0
 
     from saifguard.analysis_tool import analysis_tool
 
-    print(f"🛡️  Running SAIFGuard Hybrid Audit on target '{args.target}'...")
+    print(f"🛡️  Running SAIFGuard Hybrid Audit on target '{audit_target}'...")
     report = analysis_tool(
-        target_uri_or_path=args.target,
+        target_uri_or_path=audit_target,
         output_path=output_file,
         max_context_kb=args.max_context_kb,
     )
+    if report.startswith(("Error", "An exception occurred")):
+        print(report, file=sys.stderr)
+        return 1
     print(f"\n✓ Audit complete! Full report saved to: {output_file}")
     return 0
 
@@ -195,21 +209,17 @@ def cmd_install_hook(args: argparse.Namespace) -> int:
 # Prevents committing Critical or High SAIF/OWASP AI security violations.
 
 echo "🛡️  Running SAIFGuard pre-commit security scan..."
-python3 -c '
-import sys
-from pathlib import Path
-for p in [Path(".agents/skills/saifguard/scripts/fast_scan.py"), Path("src/saifguard/skills/saifguard/scripts/fast_scan.py")]:
-    if p.is_file():
-        import subprocess
-        res = subprocess.run([sys.executable, str(p), ".", "--fail-on=HIGH", "--format=summary"])
-        sys.exit(res.returncode)
-'
-STATUS=$?
-
-if [ $STATUS -ne 0 ]; then
-    echo "❌ SAIFGuard pre-commit scan failed. Fix the critical/high security issues above or add \x27# saifguard:ignore\x27 before committing."
-    exit 1
-fi
+for SCANNER in ".agents/skills/saifguard/scripts/fast_scan.py" "src/saifguard/skills/saifguard/scripts/fast_scan.py" "$HOME/.gemini/config/skills/saifguard/scripts/fast_scan.py"; do
+    if [ -f "$SCANNER" ]; then
+        python3 "$SCANNER" . --fail-on=HIGH --format=summary
+        STATUS=$?
+        if [ $STATUS -ne 0 ]; then
+            echo "❌ SAIFGuard pre-commit scan failed. Fix the Critical/High issues above or add '# saifguard:ignore' before committing."
+            exit 1
+        fi
+        exit 0
+    fi
+done
 exit 0
 """
     pre_commit.write_text(script, encoding="utf-8")
@@ -241,7 +251,9 @@ def main() -> int:
 
     # init
     p_init = subparsers.add_parser("init", help="Install SAIFGuard skill into workspace or globally")
-    p_init.add_argument("--global", dest="global_install", action="store_true", help="Install globally")
+    p_init.add_argument("target_pos", nargs="?", default=None, help="Optional target workspace directory")
+    p_init.add_argument("--target", "--dir", dest="target", default=None, help="Target workspace directory to install the skill into (default: current directory)")
+    p_init.add_argument("--global", dest="global_install", action="store_true", help="Install globally into ~/.gemini/config/skills/saifguard")
     p_init.add_argument("--cursor", action="store_true", help="Force generate Cursor .mdc rule")
     p_init.add_argument("--claude", action="store_true", help="Force generate Claude Code command")
     p_init.add_argument("--copilot", action="store_true", help="Force append to Copilot instructions")
@@ -249,6 +261,7 @@ def main() -> int:
     # scan
     p_scan = subparsers.add_parser("scan", help="Run deterministic security pre-scan (local files or live GCP project)")
     p_scan.add_argument("target", nargs="?", default=".", help="Target directory (default: .)")
+    p_scan.add_argument("--dir", "--target", dest="dir", default=None, help="Target directory or file path")
     p_scan.add_argument("--gcp-project", default=None, help="Target GCP Project ID to scan via Cloud Asset Inventory")
     p_scan.add_argument("--format", choices=["markdown", "json", "sarif", "summary"], default="markdown")
     p_scan.add_argument("--output", default=None, help="Write report output to file (e.g. SAIF_AUDIT_REPORT.md)")
@@ -261,7 +274,8 @@ def main() -> int:
 
     # audit
     p_audit = subparsers.add_parser("audit", help="Run full hybrid (Deterministic + LLM) SAIF security audit")
-    p_audit.add_argument("target", nargs="?", default=".", help="Target local path or gs:// URI (default: .)")
+    p_audit.add_argument("target", nargs="?", default=".", help="Target local path, PDF, Google Docs URL, or gs:// URI (default: .)")
+    p_audit.add_argument("--dir", "--target", dest="dir", default=None, help="Target local path, PDF, Google Docs URL, or gs:// URI")
     p_audit.add_argument("--gcp-project", default=None, help="Target GCP Project ID to audit")
     p_audit.add_argument("--output", default="SAIF_AUDIT_REPORT.md", help="Output Markdown report filename")
     p_audit.add_argument("--max-context-kb", type=int, default=120, help="Context budget ceiling in KB")
@@ -278,6 +292,8 @@ def main() -> int:
         return 0
 
     if args.command == "init":
+        if not args.target and getattr(args, "target_pos", None):
+            args.target = args.target_pos
         return cmd_init(args)
     elif args.command == "scan":
         return cmd_scan(args)

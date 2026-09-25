@@ -79,15 +79,19 @@ function generateClaudeCommand(skillDir, targetDir) {
 function generateCopilotInstructions(skillDir, targetDir) {
   const skillFile = path.join(skillDir, 'SKILL.md');
   if (!fs.existsSync(skillFile)) return;
-  const content = fs.readFileSync(skillFile, 'utf8');
+  const content = fs.readFileSync(skillFile, 'utf8').replace(/<SKILL_DIR>/g, '.agents/skills/saifguard');
 
   const githubDir = path.join(targetDir, '.github');
   fs.mkdirSync(githubDir, { recursive: true });
 
   const copilotFile = path.join(githubDir, 'copilot-instructions.md');
-  const section = `\n\n## Google SAIF Security Guidelines\nWhen auditing or reviewing code for security, enforce the following SAIF rules:\n${content}\n`;
-  fs.appendFileSync(copilotFile, section, 'utf8');
-  console.log(`  ✓ Appended to GitHub Copilot instructions: .github/copilot-instructions.md`);
+  const existing = fs.existsSync(copilotFile) ? fs.readFileSync(copilotFile, 'utf8') : '';
+  const marker = '## Google SAIF Security Guidelines';
+  if (!existing.includes(marker)) {
+    const section = `\n\n${marker}\nWhen auditing or reviewing code for security, enforce the following SAIF rules:\n${content}\n`;
+    fs.appendFileSync(copilotFile, section, 'utf8');
+  }
+  console.log(`  ✓ Configured GitHub Copilot instructions: .github/copilot-instructions.md`);
 }
 
 function initCommand(args) {
@@ -108,7 +112,18 @@ function initCommand(args) {
     return;
   }
 
-  const targetDir = process.cwd();
+  let customTarget = null;
+  for (let i = 0; i < args.length; i++) {
+    if ((args[i] === '--target' || args[i] === '--dir') && i + 1 < args.length) {
+      customTarget = args[i + 1];
+      i++;
+    } else if (args[i].startsWith('--target=') || args[i].startsWith('--dir=')) {
+      customTarget = args[i].split('=', 2)[1];
+    }
+  }
+
+  const targetDir = customTarget ? path.resolve(customTarget) : process.cwd();
+  fs.mkdirSync(targetDir, { recursive: true });
   console.log(`Installing SAIFGuard skill into workspace: ${targetDir}...`);
 
   const agentsTarget = path.join(targetDir, '.agents', 'skills', 'saifguard');
