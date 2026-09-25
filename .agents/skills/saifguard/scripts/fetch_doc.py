@@ -47,9 +47,9 @@ def _get_gcloud_session():
             lib_str = str(sdk_root / "lib")
             tp_str = str(sdk_root / "lib" / "third_party")
             if lib_str not in sys.path:
-                sys.path.insert(0, lib_str)
+                sys.path.append(lib_str)
             if tp_str not in sys.path:
-                sys.path.insert(0, tp_str)
+                sys.path.append(tp_str)
             from googlecloudsdk.core.credentials import requests as creds_requests
             from googlecloudsdk.core.credentials import store
 
