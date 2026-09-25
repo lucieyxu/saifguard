@@ -37,7 +37,7 @@
 
 ---
 
-## 4. Detailed Security Findings & GA Remediation
+## 4. Detailed Security Findings & Remediation
 
 *Order findings strictly by severity: `🔴 Critical` ➔ `🟠 High` ➔ `🟡 Medium` ➔ `🟢 Low`.*
 
@@ -46,7 +46,7 @@
 - **OWASP LLM Category**: `<LLM01–LLM10>`
 - **Location**: [`<file.py:L10-L20 or //asset/uri>`](<file:///absolute/path#L10-L20 or https://console.cloud.google.com/...>)
 - **Risk Description**: `<Detailed threat scenario, root cause, and blast radius>`
-- **GA Remediation**:
+- **Remediation**:
 ```<bash or diff>
 <Production-ready GA gcloud command (never alpha/beta) or unified git diff>
 ```
