@@ -27,7 +27,7 @@ SAIFGuard provides a comprehensive security overview by analyzing your entire AI
 
 Audit local application code (Python, Go, JS/TS), Terraform IaC (`*.tf`, `*.tfvars`), Dockerfiles, RAG pipelines, agentic tools, architecture design documents, and **live Google Cloud Platform (GCP) projects** directly inside your IDE (Antigravity, Cursor, Windsurf, Claude Code) or terminal against the **Google Secure AI Framework (SAIF)** and **OWASP Top 10 for LLMs**.
 
-All audits generate a standardized, customer-ready [`SAIF_AUDIT_REPORT.md`](SAIF_AUDIT_REPORT.md) deliverable containing an Executive 6-Pillar Scorecard, Audit Coverage Map, clickable Google Cloud Console deep-links, production-ready GA `gcloud` remediation commands, unified git diffs, and a CISO sign-off block.
+All audits generate a standardized, customer-ready Markdown report containing an Executive 6-Pillar Scorecard, Audit Coverage Map, clickable Google Cloud Console deep-links, production-ready GA `gcloud` remediation commands, unified git diffs, a Reviewer Decisions Log, and a CISO sign-off block. The IDE skill saves every run as a new timestamped file (`saifguard_reports/SAIF_AUDIT_REPORT_<UTC timestamp>.md`) and, in Antigravity, also publishes it as a reviewable artifact you can comment on. The CLI writes to the `--output` path you choose.
 
 ---
 
@@ -49,12 +49,14 @@ node cli/bin/saifguard.js init --target /path/to/your/project
 
 ### 2. IDE Chat Examples (`/saifguard` & `@saifguard`)
 
-Once installed in your workspace, invoke the skill directly in your IDE chat window (uses your IDE's built-in LLM + local deterministic Python scanners):
+Once installed in your workspace, invoke the skill directly in your IDE chat window (uses your IDE's built-in LLM + local deterministic Python scanners).
+
+> **Read-only by default:** the skill never modifies the files, cloud resources, or documents it audits. Remediation commands and diffs are proposals in the report. It changes something only when you explicitly ask, and only after you approve each change. Every irreversible cloud change needs its own confirmation.
 
 #### Example A: Audit a Live GCP Project (+ Cloud-to-Code Drift)
 First, ensure your terminal session is authenticated (`gcloud auth login`), then ask in chat:
 ```text
-@saifguard audit my GCP project "gcp-project" and generate SAIF_AUDIT_REPORT.md
+@saifguard audit my GCP project "gcp-project"
 ```
 *or use the shorthand command:*
 ```text
@@ -64,7 +66,7 @@ First, ensure your terminal session is authenticated (`gcloud auth login`), then
 1. Runs [`gcp_scan.py`](src/saifguard/skills/saifguard/scripts/gcp_scan.py) against Cloud Asset Inventory (`search-all-resources` & `search-all-iam-policies`) and `modelarmor.googleapis.com`.
 2. Evaluates 6 deterministic cloud rules (`GCP_CLOUD_ARMOR_MISSING`, `GCP_CMEK_MISSING`, `GCP_IAM_PRIMITIVE_OR_PUBLIC`, `GCP_SA_USER_KEY_EXPOSED`, `GCP_VERTEX_PUBLIC_ENDPOINT`, `GCP_MODEL_ARMOR_MISSING`).
 3. Gracefully handles `403 PERMISSION_DENIED` or disabled APIs by generating an **Audit Coverage & API Visibility** table (`GCP_AUDIT_VISIBILITY_GAP`).
-4. Cross-checks live GCP assets against local `*.tf` and `*.py` files to detect **Shadow AI / ClickOps drift** and writes [`SAIF_AUDIT_REPORT.md`](SAIF_AUDIT_REPORT.md).
+4. Cross-checks live GCP assets against local `*.tf` and `*.py` files to detect **Shadow AI / ClickOps drift** and writes a new timestamped report to `saifguard_reports/` (plus a reviewable artifact in Antigravity).
 
 #### Example B: Audit Local Application Code, RAG & Agentic Tools
 ```text
