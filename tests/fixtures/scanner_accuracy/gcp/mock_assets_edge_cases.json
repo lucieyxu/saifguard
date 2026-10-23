@@ -1,0 +1,79 @@
+[
+  {
+    "name": "//compute.googleapis.com/projects/edge-project/global/backendServices/scheme-unknown",
+    "assetType": "compute.googleapis.com/BackendService",
+    "location": "global",
+    "versionedResources": [{"version": "v1", "resource": {"name": "scheme-unknown"}}]
+  },
+  {
+    "name": "//compute.googleapis.com/projects/edge-project/global/backendServices/internal-backend",
+    "assetType": "compute.googleapis.com/BackendService",
+    "location": "global",
+    "versionedResources": [{"version": "v1", "resource": {"name": "internal-backend", "loadBalancingScheme": "INTERNAL_MANAGED"}}]
+  },
+  {
+    "name": "//compute.googleapis.com/projects/edge-project/regions/europe-west4/backendServices/regional-gateway",
+    "assetType": "compute.googleapis.com/BackendService",
+    "location": "europe-west4",
+    "versionedResources": [{"version": "v1", "resource": {"name": "regional-gateway", "loadBalancingScheme": "EXTERNAL_MANAGED"}}]
+  },
+  {
+    "name": "//compute.googleapis.com/projects/edge-project/global/backendServices/protected-backend",
+    "assetType": "compute.googleapis.com/BackendService",
+    "location": "global",
+    "versionedResources": [{"version": "v1", "resource": {"name": "protected-backend", "loadBalancingScheme": "EXTERNAL", "securityPolicy": "https://www.googleapis.com/compute/v1/projects/edge-project/global/securityPolicies/waf"}}]
+  },
+  {
+    "name": "//iam.googleapis.com/projects/edge-project/serviceAccounts/runner@edge-project.iam.gserviceaccount.com/keys/aaaa1111",
+    "assetType": "iam.googleapis.com/ServiceAccountKey",
+    "location": "global"
+  },
+  {
+    "name": "//iam.googleapis.com/projects/edge-project/serviceAccounts/runner@edge-project.iam.gserviceaccount.com/keys/bbbb2222",
+    "assetType": "iam.googleapis.com/ServiceAccountKey",
+    "location": "global",
+    "versionedResources": [{"version": "v1", "resource": {"keyType": "SYSTEM_MANAGED"}}]
+  },
+  {
+    "name": "//storage.googleapis.com/main-assets",
+    "assetType": "storage.googleapis.com/Bucket",
+    "location": "US",
+    "versionedResources": [{"version": "v1", "resource": {"name": "main-assets"}}]
+  },
+  {
+    "name": "//storage.googleapis.com/email-archive",
+    "assetType": "storage.googleapis.com/Bucket",
+    "location": "US",
+    "versionedResources": [{"version": "v1", "resource": {"name": "email-archive"}}]
+  },
+  {
+    "name": "//storage.googleapis.com/team-ai-data",
+    "assetType": "storage.googleapis.com/Bucket",
+    "location": "EU",
+    "versionedResources": [{"version": "v1", "resource": {"name": "team-ai-data"}}]
+  },
+  {
+    "name": "//storage.googleapis.com/ml_training.datasets",
+    "assetType": "storage.googleapis.com/Bucket",
+    "location": "EU",
+    "versionedResources": [{"version": "v1", "resource": {"name": "ml_training.datasets"}}]
+  },
+  {
+    "name": "//aiplatform.googleapis.com/projects/edge-project/locations/us-central1/endpoints/111",
+    "assetType": "aiplatform.googleapis.com/Endpoint",
+    "location": "us-central1",
+    "versionedResources": [{"version": "v1", "resource": {"network": "projects/123/global/networks/private"}}]
+  },
+  {
+    "name": "//run.googleapis.com/projects/edge-project/locations/europe-west4/services/chat-api",
+    "assetType": "run.googleapis.com/Service",
+    "location": "europe-west4",
+    "versionedResources": [{"version": "v1", "resource": {"metadata": {"name": "chat-api"}}}]
+  },
+  {
+    "name": "//run.googleapis.com/projects/edge-project/locations/us-central1/revisions/chat-api-00001",
+    "assetType": "run.googleapis.com/Revision",
+    "location": "us-central1",
+    "versionedResources": [{"version": "v1", "resource": {"metadata": {"name": "chat-api-00001"}}}]
+  }
+]

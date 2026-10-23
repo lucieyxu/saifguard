@@ -1,0 +1,7 @@
+FROM python:3.12-slim@sha256:0000000000000000000000000000000000000000000000000000000000000000 AS builder
+RUN pip install --no-cache-dir uv
+FROM builder AS tester
+RUN python -m compileall .
+FROM builder
+USER app
+CMD ["python", "main.py"]

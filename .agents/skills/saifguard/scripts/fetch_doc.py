@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Fetch and export Google Docs design documents for SAIF security review."""
 
+from __future__ import annotations
+
 import argparse
 import os
 import re
@@ -8,20 +10,25 @@ import shutil
 import ssl
 import subprocess
 import sys
+import tempfile
 import urllib.error
 import urllib.request
 from pathlib import Path
 
 
 def _get_ssl_context() -> ssl.SSLContext:
-    """Create an SSLContext that falls back to macOS/Linux /etc/ssl/cert.pem when Python lacks root CAs."""
-    try:
-        ctx = ssl.create_default_context()
-        if Path("/etc/ssl/cert.pem").is_file():
-            ctx.load_verify_locations(cafile="/etc/ssl/cert.pem")
-        return ctx
-    except Exception:
-        return ssl._create_unverified_context()
+    """Create a certificate-verifying SSLContext, adding macOS/Linux /etc/ssl/cert.pem when Python lacks root CAs.
+
+    Fails closed: verification is never disabled, because the requests below carry a Bearer token.
+    """
+    ctx = ssl.create_default_context()
+    cafile = Path("/etc/ssl/cert.pem")
+    if cafile.is_file():
+        try:
+            ctx.load_verify_locations(cafile=str(cafile))
+        except (OSError, ssl.SSLError):
+            pass  # keep the default trust store; verification stays enabled
+    return ctx
 
 
 def _get_gcloud_session():
@@ -110,7 +117,10 @@ def fetch_google_doc_bytes(url: str) -> tuple[bytes | None, str, str]:
     except Exception:
         pass
 
-    ssl_ctx = _get_ssl_context()
+    try:
+        ssl_ctx = _get_ssl_context()
+    except ssl.SSLError as exc:
+        return None, "", f"Unable to initialise TLS certificate verification: {exc}"
     export_urls = [
         (f"https://docs.google.com/document/d/{doc_id}/export?format=md", "text/markdown"),
         (f"https://docs.google.com/document/d/{doc_id}/export?format=txt", "text/plain"),
@@ -124,11 +134,7 @@ def fetch_google_doc_bytes(url: str) -> tuple[bytes | None, str, str]:
             req = urllib.request.Request(exp_url)
             if token:
                 req.add_header("Authorization", f"Bearer {token}")
-            try:
-                resp_ctx = urllib.request.urlopen(req, timeout=20, context=ssl_ctx)
-            except TypeError:
-                resp_ctx = urllib.request.urlopen(req, timeout=20)
-            with resp_ctx as resp:
+            with urllib.request.urlopen(req, timeout=20, context=ssl_ctx) as resp:
                 data = resp.read()
                 if data and not data.lstrip().startswith(b"<!DOCTYPE html"):
                     content = _clean_markdown(data) if mime == "text/markdown" else data
@@ -149,7 +155,12 @@ def fetch_google_doc_bytes(url: str) -> tuple[bytes | None, str, str]:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Export a Google Doc for SAIF architecture audit.")
     parser.add_argument("url", help="Google Docs URL (https://docs.google.com/document/d/<DOC_ID>/...)")
-    parser.add_argument("--output", "-o", help="Optional output file path to write the exported content")
+    parser.add_argument(
+        "--output",
+        "-o",
+        help="Optional output file path to write the exported content "
+        "(default: text is printed to stdout; a PDF export is written to a new temporary directory)",
+    )
     args = parser.parse_args()
 
     data, mime, err = fetch_google_doc_bytes(args.url)
@@ -165,9 +176,10 @@ def main() -> int:
         if mime in ("text/markdown", "text/plain"):
             print(data.decode("utf-8", errors="replace"))
         else:
-            out_path = Path("exported_design_doc.pdf")
+            # Never write into the audited workspace: use a fresh private temp directory instead.
+            out_path = Path(tempfile.mkdtemp(prefix="saifguard_doc_")) / "exported_design_doc.pdf"
             out_path.write_bytes(data)
-            print(f"✓ Exported binary PDF to: {out_path}")
+            print(f"✓ Exported binary PDF to: {out_path.resolve()}")
     return 0
 
 

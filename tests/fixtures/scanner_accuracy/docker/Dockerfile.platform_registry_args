@@ -1,0 +1,9 @@
+FROM --platform=linux/amd64 python:3.12-slim AS base
+FROM --platform=$BUILDPLATFORM golang:1.22@sha256:1111111111111111111111111111111111111111111111111111111111111111 AS gobuild
+FROM localhost:5000/team/model-server AS untagged_local
+FROM localhost:5000/team/model-server:1.4.2 AS tagged_local
+FROM registry.example.com:8443/ml/runtime:latest AS latest_remote
+FROM ${BASE_IMAGE} AS from_arg
+FROM python:${PYTHON_VERSION}-slim AS from_arg_tag
+FROM base
+USER 10001

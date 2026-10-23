@@ -1,0 +1,3 @@
+# Scanner-accuracy regression fixtures are exercised by dedicated unit tests; keep them out of
+# whole-directory scans of tests/fixtures (e.g. tests/eval/eval_skill_vs_baseline.py).
+scanner_accuracy/**
