@@ -53,7 +53,17 @@
 
 ---
 
-## 5. Formal Security Sign-Off Block
+## 5. Reviewer Decisions Log *(Include after review comments)*
+
+*Record every reviewer decision that changed this report. Dismissed findings move here, with the reviewer's reason, instead of silently disappearing.*
+
+| Date | Finding (`<RULE_ID>` + Title) | Decision | Reason / Reviewer Comment |
+| :--- | :--- | :--- | :--- |
+| `<YYYY-MM-DD>` | `<RULE_ID> <Finding title>` | `<Dismissed: false positive / Accepted risk / Severity changed: <from> ➔ <to> / Edited>` | `<Reason>` |
+
+---
+
+## 6. Formal Security Sign-Off Block
 
 | Role | Name / Identifier | Decision | Date | Notes |
 | :--- | :--- | :--- | :--- | :--- |
