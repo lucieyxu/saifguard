@@ -1,0 +1,4 @@
+FROM python:3.11-slim@sha256:1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef
+WORKDIR /app
+COPY . .
+CMD ["python", "main.py"]

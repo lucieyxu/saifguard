@@ -78,7 +78,7 @@ steps:
           --platform managed \
           --no-allow-unauthenticated \
           $${IAP_FLAG} \
-          --set-env-vars "APP_TYPE=${_APP_TYPE},PROJECT_ID=${_PROJECT_ID},REGION=${_REGION},VERTEX_LOCATION=${_VERTEX_LOCATION},GOOGLE_CLOUD_PROJECT=${_PROJECT_ID},GOOGLE_CLOUD_LOCATION=${_REGION},DASHBOARD_BQ_PROJECT=${_PROJECT_ID},AGENT_RUNTIME_ID=$${AGENT_ID}" \
+          --set-env-vars "APP_TYPE=${_APP_TYPE},PROJECT_ID=${_PROJECT_ID},REGION=${_REGION},VERTEX_LOCATION=${_VERTEX_LOCATION},GOOGLE_CLOUD_PROJECT=${_PROJECT_ID},GOOGLE_CLOUD_LOCATION=${_REGION},AGENT_RUNTIME_ID=$${AGENT_ID}" \
           --service-account saifguard-sa@${_PROJECT_ID}.iam.gserviceaccount.com
 
 substitutions:

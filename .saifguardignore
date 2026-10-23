@@ -1,0 +1,2 @@
+# SAIFGuard ignore file
+tests/fixtures/**

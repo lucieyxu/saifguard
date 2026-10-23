@@ -366,8 +366,8 @@ def header():
       )
       icon_button(
         key="btn_generate_dashboard",
-        icon="analytics",
-        tooltip="Generate / Update Data Studio Dashboard",
+        icon="description",
+        tooltip="Export / Save SAIF_AUDIT_REPORT.md",
         on_click=on_click_header_dashboard,
       )
       icon_button(
@@ -509,8 +509,8 @@ def bot_message(*, message_index: int, message: ChatMessage):
           )
           icon_button(
             key=f"dashboard-{message_index}",
-            icon="analytics",
-            tooltip="Publish / Update Data Studio Dashboard",
+            icon="description",
+            tooltip="Save findings to SAIF_AUDIT_REPORT.md",
             on_click=on_click_publish_msg_dashboard,
           )
         metadata_parts = []
@@ -671,23 +671,23 @@ def on_click_example_user_query(e: me.ClickEvent):
 
 
 def on_click_header_dashboard(e: me.ClickEvent):
-  """Populates user prompt to trigger dashboard generation."""
+  """Populates user prompt to trigger Markdown report generation."""
   state = me.state(State)
   if state.in_progress:
     return
-  state.input = "Publish the latest security audit findings to the Data Studio BigQuery dashboard."
+  state.input = "Save the latest security audit findings into SAIF_AUDIT_REPORT.md using save_markdown_report_tool."
   me.focus_component(key="chat_input")
 
 
 def on_click_publish_msg_dashboard(e: me.ClickEvent):
-  """Populates user prompt to publish a specific message's findings to the dashboard."""
+  """Populates user prompt to save a specific message's findings to SAIF_AUDIT_REPORT.md."""
   state = me.state(State)
   if state.in_progress:
     return
   _, msg_index = e.key.split("-")
   msg_index = int(msg_index)
   target_msg = state.output[msg_index]
-  state.input = f"Publish the following security audit findings to the Data Studio BigQuery dashboard:\n\n{target_msg.content}"
+  state.input = f"Format and save the following security audit findings into SAIF_AUDIT_REPORT.md:\n\n{target_msg.content}"
   me.focus_component(key="chat_input")
 
 

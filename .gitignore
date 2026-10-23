@@ -207,3 +207,9 @@ marimo/_lsp/
 __marimo__/
 
 *.txt
+
+# SAIFGuard Generated Audit Reports & Temporary Bundles
+SAIF_AUDIT_REPORT.md
+*.sarif
+cli/_bundled_skills/
+

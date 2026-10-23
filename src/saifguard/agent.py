@@ -10,7 +10,7 @@ from google.genai import types
 from saifguard.analysis_tool import analysis_tool
 from saifguard.gcp_project_tool import gcp_project_tool
 from saifguard.google_search_tool import google_search_tool
-from saifguard.dashboard_tool import publish_dashboard_tool
+from saifguard.report_tool import save_markdown_report_tool
 from saifguard.config import (
     MODEL,
     PROJECT_ID,
@@ -27,22 +27,16 @@ LOGGER = logging.getLogger(__name__)
 
 AGENT_INSTRUCTION_PROMPT = """
 <OBJECTIVE_AND_PERSONA>
-You are an AI assistant tasked with helping developers ensure their applications on Google Cloud Platform follow the Secure AI Framework (SAIF).
+You are an AI assistant tasked with helping developers ensure their applications and cloud deployments follow the Google Secure AI Framework (SAIF) and OWASP Top 10 for LLMs.
 Focus on model and AI security first.
 </OBJECTIVE_AND_PERSONA>
-
-<DASHBOARD_INFO>
-Data Studio Security Dashboard URL:
-https://lookerstudio.google.com/reporting/08795748-d7d4-44a0-b6f7-272475314ba8
-</DASHBOARD_INFO>
 
 <INSTRUCTIONS>
 To complete the task, think step by step and call the appropriate tools:
 * Use `google_search_tool` to get the latest SAIF recommendations from official documentation ("https://saif.google/ai-development-primer", "https://saif.google/secure-ai-framework/risks", "https://saif.google/secure-ai-framework/controls").
-* Use `analysis_tool` when the user provides a GCS path to inspect architecture design files or code.
-* Use `gcp_project_tool` when the user asks to scan a GCP project to audit active cloud resources.
-* Use `publish_dashboard_tool` when the user asks to export or publish security findings to the BigQuery dashboard.
-* When asked about the dashboard URL or when publishing findings, ALWAYS include the full clickable link: `https://lookerstudio.google.com/reporting/08795748-d7d4-44a0-b6f7-272475314ba8`.
+* Use `analysis_tool` when the user provides a local file/directory path OR a GCS (`gs://`) path to inspect code, Terraform, or architecture design files.
+* Use `gcp_project_tool` when the user asks to scan or audit a live GCP project.
+* Use `save_markdown_report_tool` when the user asks to generate, save, or export the security findings into a formal Markdown report (`SAIF_AUDIT_REPORT.md`).
 </INSTRUCTIONS>
 
 <RECAP>
@@ -81,7 +75,7 @@ def build_agent(model: str) -> Agent:
             analysis_tool,
             gcp_project_tool,
             google_search_tool,
-            publish_dashboard_tool,
+            save_markdown_report_tool,
         ],
     )
 
@@ -115,7 +109,7 @@ class SAIFGuardAgent:
         svc = session_service or self.session_manager.session_service
 
         agent = build_agent(target_model)
-        return Runner(
+        return Runner(  # saifguard:ignore[PY_AGENT_NO_MAX_ITER]
             app_name=self.session_manager.app_name,
             agent=agent,
             session_service=svc,
@@ -138,10 +132,14 @@ class SAIFGuardAgent:
             token = set_progress_queue(q, session_id=effective_session_id)
             runner = self._get_runner(target_model)
             try:
+                step_count = 0
                 for event in runner.run(
                     user_id=user_id, session_id=effective_session_id, new_message=user_content
                 ):
+                    step_count += 1
                     q.put(("EVENT", event))
+                    if step_count >= 15:
+                        break
             except Exception as e:
                 LOGGER.error(f"Agent execution error: {e}")
                 q.put(("ERROR", str(e)))
@@ -179,8 +177,8 @@ class SAIFGuardAgent:
                                 tool_name = getattr(part.function_call, "name", "")
                                 if tool_name == "google_search_tool":
                                     yield "*progress*: 🌐 Searching latest SAIF guidelines on saif.google..."
-                                elif tool_name == "publish_dashboard_tool":
-                                    yield "*progress*: 📊 Publishing findings to Data Studio BigQuery dashboard..."
+                                elif tool_name == "save_markdown_report_tool":
+                                    yield "*progress*: 📝 Saving findings to SAIF Markdown Audit Report..."
                                 elif tool_name in ("gcp_project_tool", "analysis_tool"):
                                     pass  # Progress is emitted step-by-step inside the tool implementation
                                 elif tool_name:
