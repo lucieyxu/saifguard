@@ -1,0 +1,26 @@
+[
+  {
+    "resource": "//cloudresourcemanager.googleapis.com/projects/edge-project",
+    "policy": {"bindings": [{"role": "roles/viewer", "members": ["allAuthenticatedUsers", "user:owner@example.com"]}]}
+  },
+  {
+    "resource": "//storage.googleapis.com/public-site",
+    "policy": {"bindings": [{"role": "roles/storage.objectViewer", "members": ["allUsers"]}]}
+  },
+  {
+    "resource": "//run.googleapis.com/projects/edge-project/locations/europe-west4/services/chat-api",
+    "policy": {
+      "bindings": [
+        {
+          "role": "roles/run.invoker",
+          "members": ["allUsers", "allAuthenticatedUsers"],
+          "condition": {"title": "business-hours", "expression": "request.time.getHours('Europe/Amsterdam') < 18"}
+        }
+      ]
+    }
+  },
+  {
+    "resource": "//pubsub.googleapis.com/projects/edge-project/topics/events",
+    "policy": {"bindings": [{"role": "roles/pubsub.publisher", "members": ["allUsers"]}]}
+  }
+]

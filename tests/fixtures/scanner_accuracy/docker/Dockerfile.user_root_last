@@ -1,0 +1,6 @@
+FROM python:3.12-slim@sha256:3333333333333333333333333333333333333333333333333333333333333333
+RUN useradd -r app
+USER app
+RUN pip install --no-cache-dir -r requirements.txt
+USER root
+CMD ["python", "main.py"]

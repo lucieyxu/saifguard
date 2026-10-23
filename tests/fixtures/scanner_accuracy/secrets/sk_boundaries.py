@@ -1,0 +1,5 @@
+"""Regression fixture: sk- token boundaries (fake values only)."""
+CATEGORY = "high-risk-assessment-framework-v2"
+CSS_CLASS = "sk-loading-spinner-container-wrapper"
+TASK_ID = "disk-sk-0123456789abcdefghijk"
+OPENAI_KEY = "sk-proj-0123456789abcdefABCDEF"

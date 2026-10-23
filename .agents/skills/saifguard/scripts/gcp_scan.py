@@ -10,17 +10,21 @@ the topology payload by >90% for downstream LLM evaluation.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import re
+import socket
+import ssl
 import subprocess
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 
 @dataclass
@@ -104,6 +108,23 @@ STRIP_METADATA_KEYS = {
     "kind",
 }
 
+# Model Armor: floor settings are a global singleton served by the global endpoint, while templates
+# must be managed through the regional / multi-regional endpoint matching the template's location.
+MODEL_ARMOR_GLOBAL_ENDPOINT = "https://modelarmor.googleapis.com"
+MODEL_ARMOR_VIEWER_ROLES = ("roles/modelarmor.viewer", "roles/modelarmor.floorSettingsViewer")
+_LOCATION_RE = re.compile(r"^[a-z][a-z0-9-]{0,62}$")
+_MAX_TEMPLATE_PAGES = 20
+
+# Bucket-name tokens (split on - _ .) that mark a bucket as holding AI / ML data.
+AI_BUCKET_TOKENS = frozenset({
+    "ai", "genai", "llm", "llms", "ml", "mlops", "rag", "vertex", "vertexai", "gemini",
+    "model", "models", "embed", "embeds", "embedding", "embeddings", "vector", "vectors",
+    "train", "training", "prompt", "prompts",
+})
+
+PUBLIC_PRINCIPALS = ("allUsers", "allAuthenticatedUsers")
+TOPOLOGY_MARKDOWN_ROW_LIMIT = 100
+
 
 def build_console_url(asset_type: str, resource_name: str, project_id: str) -> str:
     """Deterministically generate a clickable Google Cloud Console URL for a resource."""
@@ -132,6 +153,34 @@ def build_console_url(asset_type: str, resource_name: str, project_id: str) -> s
     return f"https://console.cloud.google.com/home/dashboard?project={project_id}"
 
 
+def is_ai_bucket_name(bucket_name: str) -> bool:
+    """True when a bucket short name contains an AI/ML token (token match, so 'main'/'email' don't count)."""
+    return any(token in AI_BUCKET_TOKENS for token in re.split(r"[-_.]+", bucket_name.lower()) if token)
+
+
+def _asset_type_for_resource(resource_name: str) -> str:
+    """Best-effort asset type for an IAM policy's full resource name (used for commands and console URLs)."""
+    if resource_name.startswith("//cloudresourcemanager.googleapis.com/projects/"):
+        return "cloudresourcemanager.googleapis.com/Project"
+    if resource_name.startswith("//storage.googleapis.com/"):
+        bucket = resource_name[len("//storage.googleapis.com/"):]
+        if bucket and "/" not in bucket:
+            return "storage.googleapis.com/Bucket"
+    if re.match(r"^//run\.googleapis\.com/projects/[^/]+/locations/[^/]+/services/[^/]+$", resource_name):
+        return "run.googleapis.com/Service"
+    if re.match(r"^//bigquery\.googleapis\.com/projects/[^/]+/datasets/[^/]+$", resource_name):
+        return "bigquery.googleapis.com/Dataset"
+    return ""
+
+
+def _floor_setting_enforced(floor_setting: Any) -> bool:
+    return isinstance(floor_setting, dict) and str(floor_setting.get("enableFloorSettingEnforcement", "")).lower() == "true"
+
+
+def _model_armor_regional_endpoint(location: str) -> str:
+    return f"https://modelarmor.{location}.rep.googleapis.com"
+
+
 def _run_gcloud_json(args: list[str], timeout: int = 30) -> tuple[bool, Any, str]:
     """Execute a gcloud command returning JSON and parse the output."""
     try:
@@ -148,6 +197,71 @@ def _run_gcloud_json(args: list[str], timeout: int = 30) -> tuple[bool, Any, str
         return False, None, str(e)
 
 
+def _get_gcloud_access_token(timeout: int = 10) -> str:
+    """Return a gcloud OAuth access token, or '' when gcloud is missing or not authenticated."""
+    try:
+        proc = subprocess.run(
+            ["gcloud", "auth", "print-access-token", "--quiet"],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        if proc.returncode == 0:
+            return proc.stdout.strip()
+    except Exception:
+        pass
+    return ""
+
+
+def _build_ssl_context() -> ssl.SSLContext:
+    """Certificate-verifying TLS context (adds the macOS/Linux system bundle when present; never unverified)."""
+    ctx = ssl.create_default_context()
+    cafile = Path("/etc/ssl/cert.pem")
+    if cafile.is_file():
+        try:
+            ctx.load_verify_locations(cafile=str(cafile))
+        except (OSError, ssl.SSLError):
+            pass  # keep the default trust store; verification stays enabled
+    return ctx
+
+
+def _http_get_json(url: str, headers: dict[str, str], ssl_ctx: ssl.SSLContext, timeout: int = 5) -> tuple[int | None, Any, str]:
+    """GET a JSON resource -> (HTTP status or None on network failure, payload, error detail)."""
+    req = urllib.request.Request(url, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout, context=ssl_ctx) as resp:
+            status = getattr(resp, "status", 200)
+            body = resp.read().decode("utf-8", errors="replace")
+        try:
+            return status, (json.loads(body) if body.strip() else {}), ""
+        except ValueError:
+            return status, None, "Invalid JSON response"
+    except urllib.error.HTTPError as he:
+        detail = ""
+        try:
+            err = json.loads(he.read().decode("utf-8", errors="replace")).get("error", {})
+            detail = err.get("message") or err.get("status") or ""
+            reasons = [d.get("reason") for d in err.get("details", []) if isinstance(d, dict) and d.get("reason")]
+            if reasons:
+                detail = f"{', '.join(reasons)}: {detail}"
+        except Exception:
+            pass
+        finally:
+            with contextlib.suppress(Exception):
+                he.close()
+        return he.code, None, (detail or str(he.reason))[:300]
+    except urllib.error.URLError as ue:
+        if isinstance(ue.reason, socket.gaierror):
+            return None, None, f"DNS_UNRESOLVED: {ue.reason}"
+        return None, None, f"Network error: {ue.reason}"
+    except Exception as exc:  # timeouts, TLS failures, connection resets
+        return None, None, f"Network error: {exc}"
+
+
+def _md_cell(value: Any) -> str:
+    return str(value).replace("|", "\\|").replace("\n", " ")
+
+
 class GCPProjectScanner:
     """Fetches GCP assets, evaluates deterministic SAIF rules, and compresses payload."""
 
@@ -157,11 +271,13 @@ class GCPProjectScanner:
         mock_assets_path: str | None = None,
         mock_iam_path: str | None = None,
         mock_model_armor_path: str | None = None,
+        model_armor_locations: Sequence[str] | None = None,
     ):
         self.project_id = project_id
         self.mock_assets_path = mock_assets_path
         self.mock_iam_path = mock_iam_path
         self.mock_model_armor_path = mock_model_armor_path
+        self.extra_model_armor_locations: list[str] = list(model_armor_locations or [])
 
         self.findings: list[SAIFFinding] = []
         self.coverage: dict[str, str] = {
@@ -172,9 +288,17 @@ class GCPProjectScanner:
         self.raw_resources: list[dict[str, Any]] = []
         self.raw_iam_policies: list[dict[str, Any]] = []
         self.model_armor_data: dict[str, Any] = {"templates": [], "floor_settings": []}
+        # False when the Model Armor API could not be read (auth/permission/network): absence is then unknown.
+        self.model_armor_readable = True
+        self.model_armor_scope = ""
         self.compressed_resources: list[dict[str, Any]] = []
 
-    def _add_visibility_gap(self, api_name: str, error_detail: str, enable_cmd: str, role_hint: str) -> None:
+    def _add_visibility_gap(self, api_name: str, error_detail: str, enable_cmd: str, role_hint: str | Sequence[str]) -> None:
+        roles = [role_hint] if isinstance(role_hint, str) else list(role_hint)
+        grant_cmds = "\n".join(
+            f"gcloud projects add-iam-policy-binding {self.project_id} --member='<YOUR_PRINCIPAL>' --role='{role}'"
+            for role in roles
+        )
         self.findings.append(
             SAIFFinding(
                 rule_id="GCP_AUDIT_VISIBILITY_GAP",
@@ -184,7 +308,11 @@ class GCPProjectScanner:
                 category="Audit Visibility",
                 title=f"{api_name} Unavailable — Audit Coverage Incomplete",
                 description=f"Could not query {api_name} in project '{self.project_id}'. Error: {error_detail[:300]}",
-                remediation=f"Enable API and grant viewer permissions:\n```bash\n{enable_cmd}\ngcloud projects add-iam-policy-binding {self.project_id} --member='user:YOUR_EMAIL' --role='{role_hint}'\n```",
+                remediation=(
+                    "Enable API and grant viewer permissions to the auditing identity (replace `<YOUR_PRINCIPAL>`, e.g. "
+                    f"`user:alice@example.com` or `serviceAccount:auditor@{self.project_id}.iam.gserviceaccount.com`):\n"
+                    f"```bash\n{enable_cmd}\n{grant_cmds}\n```"
+                ),
                 location=f"projects/{self.project_id}",
                 url=f"https://console.cloud.google.com/apis/dashboard?project={self.project_id}",
             )
@@ -266,11 +394,17 @@ class GCPProjectScanner:
         if r_ok and isinstance(run_svcs, list):
             for s in run_svcs:
                 s_name = s.get("metadata", {}).get("name", "service")
-                fallback_resources.append({
+                # Same region label gcloud itself reads (googlecloudsdk api_lib/run/k8s_object.py REGION_LABEL).
+                s_region = (s.get("metadata", {}).get("labels") or {}).get("cloud.googleapis.com/location", "")
+                run_entry: dict[str, Any] = {
                     "name": f"//run.googleapis.com/projects/{self.project_id}/services/{s_name}",
                     "assetType": "run.googleapis.com/Service",
                     "versionedResources": [{"resource": s}],
-                })
+                }
+                if s_region:
+                    run_entry["name"] = f"//run.googleapis.com/projects/{self.project_id}/locations/{s_region}/services/{s_name}"
+                    run_entry["location"] = s_region
+                fallback_resources.append(run_entry)
         # Service Accounts
         sa_ok, sas, _ = _run_gcloud_json(["iam", "service-accounts", "list", f"--project={self.project_id}"])
         if sa_ok and isinstance(sas, list):
@@ -350,89 +484,123 @@ class GCPProjectScanner:
             "roles/iam.securityReviewer",
         )
 
+    def model_armor_locations(self) -> list[str]:
+        """Locations to probe: `global` + regions of discovered Vertex AI / Cloud Run assets + user-supplied ones."""
+        candidates = ["global"]
+        for asset in self.raw_resources:
+            asset_type = str(asset.get("assetType", ""))
+            if not asset_type.startswith(("aiplatform.googleapis.com/", "run.googleapis.com/")):
+                continue
+            loc = str(asset.get("location") or "")
+            if not loc:
+                m = re.search(r"/locations/([^/]+)/", str(asset.get("name", "")))
+                loc = m.group(1) if m else ""
+            candidates.append(loc)
+        candidates.extend(self.extra_model_armor_locations)
+
+        locations: list[str] = []
+        for loc in candidates:
+            loc = loc.strip().lower()
+            if loc and _LOCATION_RE.match(loc) and loc not in locations:
+                locations.append(loc)
+        return locations
+
+    def _mark_model_armor_unreadable(self, coverage_status: str, error_detail: str) -> None:
+        self.model_armor_readable = False
+        self.coverage["Model Armor Guardrails API"] = coverage_status
+        self._add_visibility_gap(
+            "Model Armor API",
+            error_detail,
+            f"gcloud services enable modelarmor.googleapis.com --project={self.project_id}",
+            MODEL_ARMOR_VIEWER_ROLES,
+        )
+
     def fetch_model_armor(self) -> None:
-        """Query Model Armor floor settings and templates via REST API or mock file."""
+        """Query the Model Armor floor setting (global) and templates (regional endpoints) via REST or a mock file."""
         if self.mock_model_armor_path and Path(self.mock_model_armor_path).is_file():
             self.model_armor_data = json.loads(Path(self.mock_model_armor_path).read_text(encoding="utf-8"))
             self.coverage["Model Armor Guardrails API"] = "✅ Scanned (Mock Fixture)"
+            self.model_armor_scope = "mock fixture"
             return
         if self.mock_assets_path:
             self.model_armor_data = {"templates": [], "floor_settings": []}
             self.coverage["Model Armor Guardrails API"] = "⚠️ Not Enabled / No Vertex Guardrails Configured (Mock)"
+            self.model_armor_scope = "mock fixture"
             return
 
-        token = ""
-        try:
-            proc = subprocess.run(
-                ["gcloud", "auth", "print-access-token", "--quiet"],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-            if proc.returncode == 0:
-                token = proc.stdout.strip()
-        except Exception:
-            pass
-
+        template_locations = [loc for loc in self.model_armor_locations() if loc != "global"]
+        token = _get_gcloud_access_token()
         if not token:
-            self.coverage["Model Armor Guardrails API"] = "⚠️ Skipped (No gcloud auth token)"
+            self._mark_model_armor_unreadable(
+                "❌ Not scanned (no gcloud auth token)",
+                "No gcloud access token (`gcloud auth print-access-token` failed); Model Armor floor settings and "
+                "templates could not be read, so their absence cannot be confirmed.",
+            )
             return
 
-        import ssl
+        ssl_ctx = _build_ssl_context()
+        headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+        project = urllib.parse.quote(self.project_id, safe="")
+        templates: list[Any] = []
+        floor_settings: list[Any] = []
+        answered: list[str] = []
+        problems: list[str] = []  # 401/403, 5xx, timeouts -> the result is not conclusive
+        unavailable: list[str] = []  # regional endpoint does not resolve -> Model Armor not offered there
 
-        ssl_ctx = None
-        try:
-            ssl_ctx = ssl.create_default_context()
-            if Path("/etc/ssl/cert.pem").is_file():
-                ssl_ctx.load_verify_locations(cafile="/etc/ssl/cert.pem")
-        except Exception:
-            ssl_ctx = None
+        # 1. Floor setting: singleton under the global location, served by the global endpoint.
+        fs_url = f"{MODEL_ARMOR_GLOBAL_ENDPOINT}/v1/projects/{project}/locations/global/floorSetting"
+        status, payload, err = _http_get_json(fs_url, headers, ssl_ctx)
+        if status == 200 and isinstance(payload, dict):
+            answered.append("floorSetting")
+            floor_settings.append(payload)
+            fs_state = "enforced" if _floor_setting_enforced(payload) else "not enforced"
+        elif status == 404:
+            answered.append("floorSetting")
+            fs_state = "not configured"
+        else:
+            problems.append(f"floorSetting: {'HTTP ' + str(status) + ' ' if status else ''}{err}".strip())
+            fs_state = "unreadable"
 
-        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-        locations = ["global", "us-central1", "europe-west1"]
-        templates = []
-        floor_settings = []
-        any_200 = False
-
-        for loc in locations:
-            t_url = f"https://modelarmor.googleapis.com/v1/projects/{self.project_id}/locations/{loc}/templates"
-            try:
-                req = urllib.request.Request(t_url, headers=headers)
-                try:
-                    resp_cm = urllib.request.urlopen(req, timeout=5, context=ssl_ctx) if ssl_ctx else urllib.request.urlopen(req, timeout=5)
-                except TypeError:
-                    resp_cm = urllib.request.urlopen(req, timeout=5)
-                with resp_cm as resp:
-                    if resp.status == 200:
-                        any_200 = True
-                        data = json.loads(resp.read().decode("utf-8"))
-                        templates.extend(data.get("templates", []))
-            except urllib.error.HTTPError as he:
-                if he.code == 404:
-                    any_200 = True  # API enabled, just no templates in region
-            except Exception:
-                pass
-
-            f_url = f"https://modelarmor.googleapis.com/v1/projects/{self.project_id}/locations/{loc}/floorSettings"
-            try:
-                req = urllib.request.Request(f_url, headers=headers)
-                try:
-                    resp_cm = urllib.request.urlopen(req, timeout=5, context=ssl_ctx) if ssl_ctx else urllib.request.urlopen(req, timeout=5)
-                except TypeError:
-                    resp_cm = urllib.request.urlopen(req, timeout=5)
-                with resp_cm as resp:
-                    if resp.status == 200:
-                        any_200 = True
-                        data = json.loads(resp.read().decode("utf-8"))
-                        floor_settings.append(data)
-            except Exception:
-                pass
+        # 2. Templates: one regional / multi-regional endpoint per location.
+        for loc in template_locations:
+            base_url = f"{_model_armor_regional_endpoint(loc)}/v1/projects/{project}/locations/{loc}/templates"
+            page_token = ""
+            for _ in range(_MAX_TEMPLATE_PAGES):
+                url = f"{base_url}?pageToken={urllib.parse.quote(page_token, safe='')}" if page_token else base_url
+                status, payload, err = _http_get_json(url, headers, ssl_ctx)
+                if status == 200 and isinstance(payload, dict):
+                    templates.extend(payload.get("templates", []) or [])
+                    page_token = payload.get("nextPageToken") or ""
+                    if page_token:
+                        continue
+                    answered.append(f"templates@{loc}")
+                elif status == 404:
+                    answered.append(f"templates@{loc}")
+                elif status is None and err.startswith("DNS_UNRESOLVED"):
+                    unavailable.append(loc)
+                else:
+                    problems.append(f"templates@{loc}: {'HTTP ' + str(status) + ' ' if status else ''}{err}".strip())
+                break
 
         self.model_armor_data = {"templates": templates, "floor_settings": floor_settings}
-        if any_200:
-            self.coverage["Model Armor Guardrails API"] = f"✅ Scanned ({len(templates)} templates, {len(floor_settings)} floor settings)"
+        probed = ", ".join(template_locations) if template_locations else "none (no Vertex AI / Cloud Run regions discovered; use --model-armor-locations)"
+        self.model_armor_scope = f"floor setting: global; templates: {probed}"
+        details = f"floor setting: {fs_state}; templates: {len(templates)} found in [{probed}]"
+        if unavailable:
+            details += f"; no regional endpoint for: {', '.join(unavailable)}"
+
+        configured = bool(templates) or any(_floor_setting_enforced(fs) for fs in floor_settings)
+        if problems and not configured:
+            prefix = "⚠️ Partial" if answered else "❌ Not scanned"
+            self._mark_model_armor_unreadable(
+                f"{prefix} ({'; '.join(problems)[:240]})",
+                "Model Armor could not be fully read, so missing guardrails cannot be confirmed: " + "; ".join(problems),
+            )
+            return
+        if problems:
+            self.coverage["Model Armor Guardrails API"] = f"⚠️ Partial ({details}; errors: {'; '.join(problems)[:200]})"
         else:
-            self.coverage["Model Armor Guardrails API"] = "⚠️ Not Enabled / No Vertex Guardrails Configured"
+            self.coverage["Model Armor Guardrails API"] = f"✅ Scanned ({details})"
 
     def _extract_inner_resource(self, asset: dict[str, Any]) -> dict[str, Any]:
         """Extract the underlying versioned resource dict from a Cloud Asset wrapper."""
@@ -440,6 +608,88 @@ class GCPProjectScanner:
         if v_list and isinstance(v_list, list) and isinstance(v_list[0], dict):
             return v_list[0].get("resource", {})
         return asset
+
+    def _cloud_armor_remediation(self, res_name: str) -> str:
+        """GA commands: policy with preconfigured WAF rules + per-client rate limiting, then attach it."""
+        regional = re.search(r"/regions/([^/]+)/backendServices/([^/]+)$", res_name)
+        if regional:
+            backend = regional.group(2)
+            scope_flag = f"--region={regional.group(1)}"
+            rule_scope = f" --region={regional.group(1)}"
+        else:
+            backend = res_name.split("/")[-1]
+            scope_flag = "--global"
+            rule_scope = ""
+        policy = "saifguard-waf-policy"
+        p = self.project_id
+        return (
+            "Create a Cloud Armor policy with preconfigured OWASP CRS WAF rules and per-client rate limiting, then attach it "
+            "(external Application Load Balancer backends; tune thresholds, and add `--preview` to a rule to log matches "
+            "before enforcing):\n"
+            "```bash\n"
+            f"gcloud compute security-policies create {policy} --description='SAIFGuard baseline WAF and rate limiting' {scope_flag} --project={p}\n"
+            f"gcloud compute security-policies rules create 1000 --security-policy={policy} "
+            f"--expression=\"evaluatePreconfiguredWaf('sqli-v33-stable', {{'sensitivity': 1}})\" --action=deny-403{rule_scope} --project={p}\n"
+            f"gcloud compute security-policies rules create 1001 --security-policy={policy} "
+            f"--expression=\"evaluatePreconfiguredWaf('xss-v33-stable', {{'sensitivity': 1}})\" --action=deny-403{rule_scope} --project={p}\n"
+            f"gcloud compute security-policies rules create 2000 --security-policy={policy} --src-ip-ranges='*' --action=throttle "
+            f"--rate-limit-threshold-count=100 --rate-limit-threshold-interval-sec=60 --conform-action=allow "
+            f"--exceed-action=deny-429 --enforce-on-key=ip{rule_scope} --project={p}\n"
+            f"gcloud compute backend-services update {backend} --security-policy={policy} {scope_flag} --project={p}\n"
+            "```"
+        )
+
+    def _sa_key_remediation(self, res_name: str) -> str:
+        """Disable first (reversible), then delete (irreversible), using the SA email parsed from the key name."""
+        m = re.search(r"/serviceAccounts/([^/]+)/keys/([^/]+)$", res_name)
+        sa_email, key_id = (m.group(1), m.group(2)) if m else ("<SERVICE_ACCOUNT_EMAIL>", res_name.split("/")[-1])
+        p = self.project_id
+        return (
+            "Disable the static key first (reversible with `gcloud iam service-accounts keys enable`) and confirm nothing "
+            "breaks, then delete it and migrate the workload to Workload Identity Federation or an attached service account:\n"
+            "```bash\n"
+            f"gcloud iam service-accounts keys disable {key_id} --iam-account={sa_email} --project={p}\n"
+            "# ⚠️ irreversible: a deleted key cannot be restored\n"
+            f"gcloud iam service-accounts keys delete {key_id} --iam-account={sa_email} --project={p}\n"
+            "```"
+        )
+
+    def _public_iam_remediation(self, res_target: str, role: str, public_members: list[str], has_condition: bool) -> tuple[str, str]:
+        """Return (remediation, console_url) for a binding that grants a role to allUsers / allAuthenticatedUsers."""
+        asset_type = _asset_type_for_resource(res_target)
+        console_url = build_console_url(asset_type, res_target, self.project_id)
+        all_flag = " --all" if has_condition else ""
+        commands: list[str] = []
+        if asset_type == "cloudresourcemanager.googleapis.com/Project":
+            commands = [
+                f"gcloud projects remove-iam-policy-binding {self.project_id} --member='{m}' --role='{role}'{all_flag}"
+                for m in public_members
+            ]
+        elif asset_type == "storage.googleapis.com/Bucket":
+            bucket = res_target.rsplit("/", 1)[-1]
+            commands = [
+                f"gcloud storage buckets remove-iam-policy-binding gs://{bucket} --member='{m}' --role='{role}'{all_flag}"
+                for m in public_members
+            ]
+        elif asset_type == "run.googleapis.com/Service":
+            run_m = re.search(r"/locations/([^/]+)/services/([^/]+)$", res_target)
+            if run_m:
+                commands = [
+                    f"gcloud run services remove-iam-policy-binding {run_m.group(2)} --region={run_m.group(1)} "
+                    f"--member='{m}' --role='{role}' --project={self.project_id}{all_flag}"
+                    for m in public_members
+                ]
+        if commands:
+            remediation = (
+                "Remove the public binding(s) after confirming no anonymous consumer depends on them:\n"
+                "```bash\n" + "\n".join(commands) + "\n```"
+            )
+        else:
+            remediation = (
+                f"Remove {', '.join(public_members)} from role '{role}' in this resource's IAM policy "
+                f"(Google Cloud console: open the resource > Permissions). No GA command is suggested for this resource type."
+            )
+        return remediation, console_url
 
     def compress_and_evaluate(self) -> None:
         """Run deterministic SAIF rules and compress the resource payload by stripping noise."""
@@ -467,9 +717,12 @@ class GCPProjectScanner:
 
             # Rule 1: GCP_CLOUD_ARMOR_MISSING on BackendServices
             if asset_type == "compute.googleapis.com/BackendService":
-                load_balancing_scheme = inner.get("loadBalancingScheme", "EXTERNAL")
+                load_balancing_scheme = inner.get("loadBalancingScheme")
                 sec_policy = inner.get("securityPolicy", "")
-                if "EXTERNAL" in load_balancing_scheme and not sec_policy:
+                if not sec_policy and not load_balancing_scheme:
+                    # Exposure unknown: never escalate missing data to CRITICAL.
+                    alerts.append("UNVERIFIED_GCP_CLOUD_ARMOR_MISSING")
+                elif "EXTERNAL" in str(load_balancing_scheme) and not sec_policy:
                     alerts.append("GCP_CLOUD_ARMOR_MISSING")
                     self.findings.append(
                         SAIFFinding(
@@ -480,7 +733,7 @@ class GCPProjectScanner:
                             category="Network & WAF",
                             title="External Load Balancer Backend Missing Cloud Armor Security Policy",
                             description=f"Backend service '{res_name}' is exposed externally ({load_balancing_scheme}) without an attached Cloud Armor WAF security policy.",
-                            remediation=f"Create and attach a Cloud Armor security policy:\n```bash\ngcloud compute security-policies create saifguard-waf-policy --project={self.project_id}\ngcloud compute backend-services update {res_name.split('/')[-1]} --security-policy=saifguard-waf-policy --global --project={self.project_id}\n```",
+                            remediation=self._cloud_armor_remediation(res_name),
                             location=res_name,
                             url=console_url,
                         )
@@ -492,7 +745,7 @@ class GCPProjectScanner:
                 kms_key = enc.get("defaultKmsKeyName") or inner.get("kmsKeyName")
                 if not kms_key:
                     alerts.append("GCP_CMEK_MISSING")
-                    is_ai_bucket = any(k in res_name.lower() for k in ("rag", "vertex", "model", "embed", "ai", "train", "prompt"))
+                    is_ai_bucket = is_ai_bucket_name(res_name.split("/")[-1])
                     sev = "HIGH" if is_ai_bucket else "MEDIUM"
                     self.findings.append(
                         SAIFFinding(
@@ -551,8 +804,11 @@ class GCPProjectScanner:
 
             # Rule 3: GCP_SA_USER_KEY_EXPOSED
             if asset_type == "iam.googleapis.com/ServiceAccountKey":
-                key_type = inner.get("keyType", "USER_MANAGED")
-                if key_type == "USER_MANAGED":
+                key_type = inner.get("keyType")
+                if not key_type:
+                    # Key type unknown: never escalate missing data to HIGH.
+                    alerts.append("UNVERIFIED_GCP_SA_USER_KEY_EXPOSED")
+                elif key_type == "USER_MANAGED":
                     alerts.append("GCP_SA_USER_KEY_EXPOSED")
                     self.findings.append(
                         SAIFFinding(
@@ -563,7 +819,7 @@ class GCPProjectScanner:
                             category="Identity & Access",
                             title="User-Managed Service Account Key Detected",
                             description=f"Service account key '{res_name}' is user-managed and does not auto-rotate, creating a high credential exfiltration risk.",
-                            remediation=f"Delete the static key and migrate to Workload Identity Federation or attached service accounts:\n```bash\ngcloud iam service-accounts keys delete {res_name.split('/')[-1]} --iam-account=SERVICE_ACCOUNT_EMAIL --project={self.project_id}\n```",
+                            remediation=self._sa_key_remediation(res_name),
                             location=res_name,
                             url=console_url,
                         )
@@ -612,7 +868,9 @@ class GCPProjectScanner:
                 role = b.get("role", "")
                 members = b.get("members", [])
                 # Public access check
-                if any(m in ("allUsers", "allAuthenticatedUsers") for m in members):
+                public_members = [m for m in members if m in PUBLIC_PRINCIPALS]
+                if public_members:
+                    remediation, console_url = self._public_iam_remediation(res_target, role, public_members, bool(b.get("condition")))
                     self.findings.append(
                         SAIFFinding(
                             rule_id="GCP_IAM_PRIMITIVE_OR_PUBLIC",
@@ -621,16 +879,17 @@ class GCPProjectScanner:
                             owasp_category="LLM06: Excessive Agency",
                             category="Identity & Access",
                             title=f"Public IAM Access ({role}) Granted to allUsers / allAuthenticatedUsers",
-                            description=f"Resource '{res_target}' grants role '{role}' to public principals ({', '.join(members)}).",
-                            remediation=f"Remove public IAM binding:\n```bash\ngcloud projects remove-iam-policy-binding {self.project_id} --member='allUsers' --role='{role}'\n```",
+                            description=f"Resource '{res_target}' grants role '{role}' to public principals ({', '.join(public_members)}).",
+                            remediation=remediation,
                             location=res_target,
-                            url=build_console_url("cloudresourcemanager.googleapis.com/Project", res_target, self.project_id),
+                            url=console_url,
                         )
                     )
                 # Primitive role granted to Service Account
                 if role in ("roles/owner", "roles/editor"):
                     sa_members = [m for m in members if m.startswith("serviceAccount:")]
                     if sa_members:
+                        asset_type = _asset_type_for_resource(res_target) or "cloudresourcemanager.googleapis.com/Project"
                         self.findings.append(
                             SAIFFinding(
                                 rule_id="GCP_IAM_PRIMITIVE_OR_PUBLIC",
@@ -642,15 +901,18 @@ class GCPProjectScanner:
                                 description=f"Resource '{res_target}' grants primitive role '{role}' to service account(s): {', '.join(sa_members[:3])}.",
                                 remediation=f"Replace primitive role '{role}' with predefined least-privilege roles (e.g., `roles/aiplatform.user`, `roles/storage.objectViewer`).",
                                 location=res_target,
-                                url=build_console_url("cloudresourcemanager.googleapis.com/Project", res_target, self.project_id),
+                                url=build_console_url(asset_type, res_target, self.project_id),
                             )
                         )
 
-        # Rule 6: GCP_MODEL_ARMOR_MISSING
+        # Rule 6: GCP_MODEL_ARMOR_MISSING (only when the API answered: "can't see it" is not "it's missing")
         templates = self.model_armor_data.get("templates", [])
         floor_settings = self.model_armor_data.get("floor_settings", [])
-        if not templates and not floor_settings:
+        configured = bool(templates) or any(_floor_setting_enforced(fs) for fs in floor_settings)
+        if self.model_armor_readable and not configured:
             sev = "HIGH" if has_vertex_or_ai else "MEDIUM"
+            floor_uri = f"projects/{self.project_id}/locations/global/floorSetting"
+            scope = f" (checked: {self.model_armor_scope})" if self.model_armor_scope else ""
             self.findings.append(
                 SAIFFinding(
                     rule_id="GCP_MODEL_ARMOR_MISSING",
@@ -659,10 +921,24 @@ class GCPProjectScanner:
                     owasp_category="LLM01: Prompt Injection",
                     category="AI Guardrails",
                     title="Model Armor Floor Settings & Templates Not Configured",
-                    description=f"Project '{self.project_id}' has no active Model Armor floor settings or prompt/response sanitization templates configured.",
-                    remediation=f"Configure Model Armor floor settings in Google Cloud Console (*Security > Model Armor*) or via REST API (`https://modelarmor.googleapis.com/v1/projects/{self.project_id}/locations/global/floorSettings`).",
-                    location=f"projects/{self.project_id}/locations/global/floorSettings",
-                    url=f"https://console.cloud.google.com/security/model-armor?project={self.project_id}",
+                    description=(
+                        f"Project '{self.project_id}' has no enforced Model Armor floor setting and no prompt/response "
+                        f"sanitization templates{scope}. Folder- or organization-level floor settings are not evaluated."
+                    ),
+                    remediation=(
+                        "Configure Model Armor in the Google Cloud console (*Security > Model Armor*) or with GA gcloud, "
+                        "then create templates in the regions your AI workloads use:\n"
+                        "```bash\n"
+                        f"gcloud model-armor floorsettings describe --full-uri='{floor_uri}'\n"
+                        f"gcloud model-armor floorsettings update --full-uri='{floor_uri}' --enable-floor-setting-enforcement=true "
+                        "--malicious-uri-filter-settings-enforcement=ENABLED --pi-and-jailbreak-filter-settings-enforcement=ENABLED "
+                        "--pi-and-jailbreak-filter-settings-confidence-level=MEDIUM_AND_ABOVE\n"
+                        "```\n"
+                        f"REST: `GET {MODEL_ARMOR_GLOBAL_ENDPOINT}/v1/{floor_uri}`; templates are served by regional endpoints "
+                        "(`https://modelarmor.<LOCATION>.rep.googleapis.com`)."
+                    ),
+                    location=floor_uri,
+                    url=f"https://console.cloud.google.com/security/modelarmor?project={self.project_id}",
                 )
             )
 
@@ -699,6 +975,39 @@ class GCPProjectScanner:
             "compressed_topology": self.compressed_resources,
             "model_armor": self.model_armor_data,
         }
+
+
+def _format_topology_section(topology: list[dict[str, Any]]) -> list[str]:
+    """Compact 'Discovered Topology' table so the markdown output supports Cloud-to-Code drift checks."""
+    lines = ["## 4. Discovered Topology (Cloud-to-Code Drift Input)", ""]
+    if not topology:
+        lines.extend(["_No resources were discovered (see Audit Coverage above)._", ""])
+        return lines
+    ordered = sorted(topology, key=lambda r: 0 if r.get("deterministic_alerts") else 1)  # alerting resources first
+    shown = ordered[:TOPOLOGY_MARKDOWN_ROW_LIMIT]
+    lines.extend([
+        f"Compressed inventory of the {len(topology)} discovered resources (noise such as Cloud Run revisions and default "
+        "routes removed). Compare it with local IaC and code to spot unmanaged (\"Shadow AI\") resources.",
+        "",
+        "| # | Resource | Type | Location | Console | Deterministic Alerts |",
+        "| ---: | :--- | :--- | :--- | :--- | :--- |",
+    ])
+    for idx, res in enumerate(shown, start=1):
+        alerts = ", ".join(f"`{_md_cell(a)}`" for a in res.get("deterministic_alerts") or []) or "—"
+        url = res.get("console_url", "")
+        console = f"[Open]({url})" if url else "—"
+        lines.append(
+            f"| {idx} | `{_md_cell(res.get('resource', ''))}` | {_md_cell(res.get('type', ''))} | "
+            f"{_md_cell(res.get('location', ''))} | {console} | {alerts} |"
+        )
+    if len(topology) > len(shown):
+        lines.extend([
+            "",
+            f"_Truncated: showing {len(shown)} of {len(topology)} resources (resources with deterministic alerts first). "
+            "Run `gcp_scan.py --format=json` for the full `compressed_topology`._",
+        ])
+    lines.append("")
+    return lines
 
 
 def format_gcp_markdown_report(scan_result: dict[str, Any]) -> str:
@@ -799,10 +1108,13 @@ def format_gcp_markdown_report(scan_result: dict[str, Any]) -> str:
                 "",
             ])
 
+    lines.extend(["---", ""])
+    lines.extend(_format_topology_section(scan_result.get("compressed_topology") or []))
+
     lines.extend([
         "---",
         "",
-        "## 4. Formal Security Sign-Off Block",
+        "## 5. Formal Security Sign-Off Block",
         "",
         "| Role | Name / Identifier | Decision | Date |",
         "| :--- | :--- | :--- | :--- |",
@@ -858,6 +1170,7 @@ def scan_gcp_project(
     mock_assets_path: str | None = None,
     mock_iam_path: str | None = None,
     mock_model_armor_path: str | None = None,
+    model_armor_locations: Sequence[str] | None = None,
 ) -> dict[str, Any]:
     """Programmatic entrypoint for ADK tools and CLI."""
     scanner = GCPProjectScanner(
@@ -865,8 +1178,23 @@ def scan_gcp_project(
         mock_assets_path=mock_assets_path,
         mock_iam_path=mock_iam_path,
         mock_model_armor_path=mock_model_armor_path,
+        model_armor_locations=model_armor_locations,
     )
     return scanner.scan()
+
+
+def parse_location_list(raw: str | None) -> list[str]:
+    """Parse a comma-separated location list, dropping (and reporting) malformed entries."""
+    locations: list[str] = []
+    for item in (raw or "").split(","):
+        loc = item.strip().lower()
+        if not loc:
+            continue
+        if _LOCATION_RE.match(loc):
+            locations.append(loc)
+        else:
+            print(f"Warning: ignoring invalid Model Armor location '{item.strip()}'", file=sys.stderr)
+    return locations
 
 
 def main() -> int:
@@ -878,6 +1206,12 @@ def main() -> int:
     parser.add_argument("--mock-assets", default=None, help="Path to mock Cloud Asset JSON fixture")
     parser.add_argument("--mock-iam", default=None, help="Path to mock IAM policies JSON fixture")
     parser.add_argument("--mock-model-armor", default=None, help="Path to mock Model Armor JSON fixture")
+    parser.add_argument(
+        "--model-armor-locations",
+        default=None,
+        help="Extra comma-separated Model Armor template locations to probe (e.g. us-central1,eu); "
+        "'global' and the regions of discovered Vertex AI / Cloud Run assets are always probed",
+    )
 
     args = parser.parse_args()
     result = scan_gcp_project(
@@ -885,6 +1219,7 @@ def main() -> int:
         mock_assets_path=args.mock_assets,
         mock_iam_path=args.mock_iam,
         mock_model_armor_path=args.mock_model_armor,
+        model_armor_locations=parse_location_list(args.model_armor_locations),
     )
 
     if args.format == "json":
