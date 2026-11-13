@@ -354,13 +354,15 @@ def header():
       me.select(
         label="Model",
         options=[
+          me.SelectOption(label="Gemini 4 Hydrogen", value="gemini-4-hydrogen"),
+          me.SelectOption(label="Gemini 3.8 Flash", value="gemini-3.8-flash"),
           me.SelectOption(label="Gemini 3.7 Flash", value="gemini-3.7-flash"),
           me.SelectOption(label="Gemini 3.6 Flash", value="gemini-3.6-flash"),
           me.SelectOption(label="Gemini 3.5 Flash", value="gemini-3.5-flash"),
           me.SelectOption(label="Gemini 3.5 Flash Lite", value="gemini-3.5-flash-lite"),
           me.SelectOption(label="Gemini 3.1 Pro", value="gemini-3.1-pro"),
         ],
-        value=state.selected_model or "gemini-3.7-flash",
+        value=state.selected_model or MODEL,
         on_selection_change=on_model_selection_change,
         style=me.Style(width="220px"),
       )

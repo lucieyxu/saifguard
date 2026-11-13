@@ -245,7 +245,7 @@ def _get_gcloud_session():
 def call_gemini(
     prompt: str,
     system_instruction: str = "",
-    model: str = "gemini-3.8-flash",
+    model: str = "gemini-4-hydrogen",
     temperature: float = 0.1,
     project_id: str | None = None,
 ) -> str:
@@ -312,7 +312,7 @@ def run_blinded_llm_judge(
     baseline_report: str,
     skill_report: str,
     target_summary: str,
-    model: str = "gemini-3.8-flash",
+    model: str = "gemini-4-hydrogen",
     project_id: str | None = None,
     seed: int = 42,
 ) -> tuple[JudgeRubricScore, JudgeRubricScore, str]:
@@ -553,7 +553,7 @@ def generate_scorecard_markdown(
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run SAIFGuard Skill vs. Baseline Gemini A/B Evaluation.")
     parser.add_argument("--gcp-project", help="Optional live GCP project ID to benchmark (default: offline fixture suite)")
-    parser.add_argument("--model", default="gemini-3.8-flash", help="Gemini model to use (default: gemini-3.8-flash)")
+    parser.add_argument("--model", default="gemini-4-hydrogen", help="Gemini model to use (default: gemini-4-hydrogen)")
     parser.add_argument("--output", "-o", default="", help="Optional path to save the Markdown scorecard")
     parser.add_argument(
         "--output-dir",
