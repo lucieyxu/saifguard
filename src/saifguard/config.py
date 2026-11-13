@@ -3,7 +3,7 @@ import os
 PROJECT_ID = os.environ.get("PROJECT_ID") or os.environ.get("GOOGLE_CLOUD_PROJECT", "saifguard")
 REGION = os.environ.get("REGION") or os.environ.get("GOOGLE_CLOUD_LOCATION", "europe-west1")
 VERTEX_LOCATION = os.environ.get("VERTEX_LOCATION") or os.environ.get("LOCATION", "global")
-MODEL = os.environ.get("MODEL", "gemini-3.7-flash")
+MODEL = os.environ.get("MODEL", "gemini-4-hydrogen")
 DEBUG_MODE = os.environ.get("DEBUG_MODE", "False").lower() in ("true", "1")
 DEFAULT_REPORT_FILENAME = os.environ.get("DEFAULT_REPORT_FILENAME", "SAIF_AUDIT_REPORT.md")
 TIMEZONE = os.environ.get("TZ") or os.environ.get("TIMEZONE", "Europe/Paris")
